@@ -1,0 +1,48 @@
+:root {
+  --bg: #0b0d12;
+  --panel: #141821;
+  --border: #2a3040;
+  --text: #e8eaf0;
+  --text-dim: #9aa3b5;
+  --btn: #1c2230;
+  --btn-hover: #26304a;
+  --accent: #4f8cff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+  overflow: hidden;
+}
+
+::selection {
+  background: rgba(79, 140, 255, 0.35);
+}
+
+.strip-scroller::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.strip-scroller::-webkit-scrollbar-thumb {
+  background: #2c3242;
+  border-radius: 5px;
+  border: 2px solid var(--bg);
+}
+.strip-scroller::-webkit-scrollbar-thumb:hover {
+  background: #3a4260;
+}
+.strip-scroller::-webkit-scrollbar-corner {
+  background: transparent;
+}
