@@ -7,7 +7,7 @@
 - **拖拽导入**：将文件夹或 ZIP 压缩包拖入页面即可打开其中的图片，无需上传
   - 支持通过按钮选择文件夹（`webkitdirectory`）或 ZIP 文件
   - ZIP 使用 [JSZip](https://stuk.github.io/jszip/) 在浏览器内解压
-  - 文件夹 / ZIP 内的弹幕 JSON 会被自动识别并加载
+  - 文件夹 / ZIP 内的弹幕 JSON 会被自动识别并加载（优先自动打开名称带 `danmaku` / `弹幕` 的 JSON 文件）
 - **图片格式支持**
   - 位图格式：`.jpg` / `.jpeg` / `.png` / `.gif` / `.webp` / `.bmp` / `.avif` / `.ico`
   - 按文件名自然排序（`1.jpg, 2.jpg, 10.jpg`），非图片文件自动跳过

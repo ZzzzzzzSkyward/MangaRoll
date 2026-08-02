@@ -18,6 +18,11 @@ export function isJson(name) {
   return JSON_EXTS.has(extOf(name))
 }
 
+// 弹幕 JSON 文件名识别：名称（含扩展名）中带 danmaku 或 弹幕 即视为弹幕文件（不区分大小写）
+export function isDanmakuJson(name) {
+  return isJson(name) && /danmaku|弹幕/i.test(name)
+}
+
 export function isZip(name) {
   return extOf(name) === 'zip'
 }

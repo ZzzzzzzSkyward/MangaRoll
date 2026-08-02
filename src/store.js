@@ -1,5 +1,5 @@
 import { reactive, ref, watch } from 'vue'
-import { walkItems, unzip, extractDims, naturalCompare, isImage, isJson, isZip } from './lib/importer'
+import { walkItems, unzip, extractDims, naturalCompare, isImage, isJson, isDanmakuJson, isZip } from './lib/importer'
 import { MODE_VERTICAL, isMode, isHorizontalMode } from './lib/modes'
 import { parseUniversalDanmaku } from './lib/danmakuParser'
 import { flushBlobCache } from './lib/blobUrlCache'
@@ -128,6 +128,9 @@ async function handleEntries(entries, kind) {
   // importId 递增标记用于竞态防护：解压 / 读图是异步的，
   // 若期间用户又触发了新导入，旧的异步结果应被丢弃。
   const currentImportId = ++importId
+  // 打开新漫画时清空上一本的弹幕：新漫画自带弹幕 JSON 时
+  // 由下方 loadDanmakuFile 重新填充，否则应保持为空。
+  state.danmaku = null
   const externalJsons = entries.filter((e) => isJson(e.path))
   const zips = entries.filter((e) => isZip(e.path))
   let titleEntries = entries
@@ -146,9 +149,11 @@ async function handleEntries(entries, kind) {
   const imgs = entries
     .filter((e) => isImage(e.path))
     .sort((a, b) => naturalCompare(a.path, b.path))
-  // 与 ZIP 一起拖入的弹幕 JSON 优先于压缩包内的
+  // 与 ZIP 一起拖入的弹幕 JSON 优先于压缩包内的；
+  // 自动打开名称带 danmaku / 弹幕 的 JSON，未命中时回退到第一个 JSON（兼容旧文件）
   const jsons = externalJsons.length ? externalJsons : entries.filter((e) => isJson(e.path))
-  if (jsons.length) await loadDanmakuFile(jsons[0].file)
+  const danmakuJson = jsons.find((e) => isDanmakuJson(e.path)) || jsons[0]
+  if (jsons.length) await loadDanmakuFile(danmakuJson.file)
 
   if (!imgs.length) {
     state.status = 'empty'
@@ -195,7 +200,8 @@ async function runImport(obtainEntries, prevStatus) {
       return
     }
     if (onlyJsonEntries(entries)) {
-      await loadDanmakuFile(entries[0].file)
+      const danmakuJson = entries.find((e) => isDanmakuJson(e.path)) || entries[0]
+      await loadDanmakuFile(danmakuJson.file)
       state.status = prevStatus === 'ready' ? prevStatus : 'empty'
       return
     }
@@ -239,7 +245,7 @@ export async function loadDanmakuFile(file) {
     const result = parseUniversalDanmaku(JSON.parse(text))
     state.danmaku = { byPage: result.byPage, count: result.count }
     state.danmakuOn = true
-    showToast(`弹幕已加载：${result.count} 条${result.skipped ? `，跳过 ${result.skipped} 条无效` : ''}`)
+    showToast(`弹幕已加载：${file.name}（${result.count} 条${result.skipped ? `，跳过 ${result.skipped} 条无效` : ''}）`)
   } catch (e) {
     console.error(e)
     showToast('弹幕 JSON 解析失败')
