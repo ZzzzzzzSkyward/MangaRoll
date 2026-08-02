@@ -52,7 +52,8 @@ export function useStripLayout({ axis, scroller, pos, vp, getPages, getZoomMode,
     return layout.value.total - layout.value.starts[i] - layout.value.sizes[i]
   }
 
-  // 与 [pos, pos + viewport] 相交的页索引区间 [from, to)，升序
+  // 与 [pos, pos + viewport] 相交的页索引区间 [from, to)，升序。
+  // LTR：换算到内容坐标直接二分；RTL 是内容镜像，先把视口区间镜像到内容坐标系再二分。
   function rangeFor(p, buf) {
     const { starts, total } = layout.value
     const n = starts.length
@@ -60,6 +61,7 @@ export function useStripLayout({ axis, scroller, pos, vp, getPages, getZoomMode,
     const lo = p - buf
     const hi = p + viewport.value + buf
     if (rightToLeft.value) {
+      // 内容坐标 x 对应滚动位置 total - x，因此镜像区间为 [total - hi, total - lo]
       const x = total - hi
       const k = lowerBound(starts, x)
       const from = k >= n ? n - 1 : starts[k] === x ? k : Math.max(0, k - 1)
@@ -87,7 +89,7 @@ export function useStripLayout({ axis, scroller, pos, vp, getPages, getZoomMode,
     return Math.min(n - 1, i)
   }
 
-  // 翻页时目标滚动位置
+  // 翻页时目标滚动位置：RTL 需滚动到内容右缘对应位置（scrollLeft 最大值方向）
   function targetFor(i) {
     const { starts, total } = layout.value
     if (!starts.length) return 0

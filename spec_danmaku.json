@@ -1,0 +1,230 @@
+{
+  "spec": {
+    "name": "comic-danmaku-universal",
+    "version": "1.0.0",
+    "formatCode": "comic-danmaku",
+    "description": "通用弹幕文件格式规范：供各来源（NicoNico / Bilibili / AcFun / SRT / ASS 等）弹幕统一转换的中间格式，兼容本阅读器现有弹幕 JSON 结构，且具备属性可扩展性。",
+    "compatibility": "本格式是现有弹幕 JSON（见 README「弹幕 JSON 格式」一节）的超集：现有结构可直接视为本格式 v1 文件，不包含 format / version / extra 等新增可选字段时，全部现有解析行为保持不变。"
+  },
+  "structure": {
+    "description": "文件为合法 JSON 对象，预定义顶层键仅 4 个；其余未知顶层键必须被解析器忽略（见 extensibility）。",
+    "keys": {
+      "format": {
+        "type": "string",
+        "required": false,
+        "const": "comic-danmaku",
+        "description": "格式标识，用于文件类型识别与校验。缺失时按 meta + danmaku 结构启发式识别（兼容旧文件）。"
+      },
+      "version": {
+        "type": "number",
+        "required": false,
+        "default": 1,
+        "constraints": "正整数，当前最大支持 1",
+        "description": "格式版本号。规格只允许以可选字段形式向后追加，因此版本号只增不改；解析器遇到大于自身支持的版本时应尝试宽松解析并提示。"
+      },
+      "meta": {
+        "type": "object",
+        "required": false,
+        "description": "元信息（全部可选，为空时应整体省略以减小体积），字段见 metaFields。"
+      },
+      "danmaku": {
+        "type": "array",
+        "required": true,
+        "description": "弹幕条目数组，元素见 itemFields。"
+      }
+    }
+  },
+  "metaFields": {
+    "description": "meta 对象内的字段，全部可选。",
+    "fields": {
+      "id": {
+        "type": "string",
+        "required": false,
+        "description": "作品唯一标识（如源站 ID 或 URL 哈希），供去重与阅读进度记忆使用。"
+      },
+      "title": {
+        "type": "string",
+        "required": false,
+        "description": "作品标题，建议与目标漫画标题一致。"
+      },
+      "source": {
+        "type": "object",
+        "required": false,
+        "description": "转换来源信息，见 sourceFields。多来源合并时建议给出说明。"
+      },
+      "generator": {
+        "type": "string",
+        "required": false,
+        "description": "生成该文件的工具名与版本，如 danmaku-converter v1.0.0。"
+      },
+      "generatedAt": {
+        "type": "string",
+        "required": false,
+        "format": "ISO 8601",
+        "description": "文件生成时间。"
+      },
+      "extra": {
+        "type": "object",
+        "required": false,
+        "description": "自定义元属性容器：任意键值，解析器必须原样保留并忽略其内容；键不得与上述预定义键重复。"
+      }
+    },
+    "sourceFields": {
+      "type": {
+        "type": "string",
+        "required": true,
+        "description": "源站标识，如 bilibili / niconico / acfun / srt / ass / custom。"
+      },
+      "name": {
+        "type": "string",
+        "required": false,
+        "description": "源站显示名。"
+      },
+      "url": {
+        "type": "string",
+        "required": false,
+        "description": "源文件或源页面地址。"
+      },
+      "originalFormat": {
+        "type": "string",
+        "required": false,
+        "description": "原始格式描述，如 bilibili-xml / niconico-json。"
+      },
+      "importedAt": {
+        "type": "string",
+        "required": false,
+        "format": "ISO 8601",
+        "description": "转换/导入时间。"
+      },
+      "extra": {
+        "type": "object",
+        "required": false,
+        "description": "来源信息扩展容器，规则同 meta.extra。"
+      }
+    }
+  },
+  "itemFields": {
+    "description": "danmaku 数组元素：核心字段 page / text 必填，样式字段可选，extra 为扩展容器。解析器应容忍任意未知 item 字段。",
+    "core": {
+      "page": {
+        "type": "number",
+        "required": true,
+        "constraints": "正整数，从 1 开始",
+        "description": "所属页码，对应漫画导入排序后的第 N 张图片。转换工具负责把来源页码换算到此坐标系（如源从 0 开始则 +1）。"
+      },
+      "text": {
+        "type": "string",
+        "required": true,
+        "description": "弹幕文本内容。"
+      }
+    },
+    "style": {
+      "color": {
+        "type": "string",
+        "required": false,
+        "default": "#ffffff",
+        "description": "文字颜色，任意合法 CSS 颜色值。"
+      },
+      "size": {
+        "type": "string",
+        "required": false,
+        "default": "normal",
+        "enum": ["small", "normal", "large"],
+        "description": "预设字号档位，由实现映射为具体像素（本项目为 22 / 28 / 36px）。建议小写，转换工具应归一化。"
+      },
+      "fontSize": {
+        "type": "number",
+        "required": false,
+        "constraints": "正整数，像素",
+        "description": "直接指定字号（像素），优先级高于 size。"
+      },
+      "position": {
+        "type": "string",
+        "required": false,
+        "default": "scroll",
+        "enum": ["scroll", "top", "bottom"],
+        "description": "弹幕位置语义：scroll 滚动 / top 顶部固定 / bottom 底部固定。本项目 v2 统一按滚动弹幕播放，字段仅保留语义与转换无损。"
+      },
+      "weight": {
+        "type": "string",
+        "required": false,
+        "default": "bold",
+        "description": "字重，任意合法 CSS font-weight 值（如 bold、600）。"
+      },
+      "shadow": {
+        "type": "string",
+        "required": false,
+        "default": "0 0 4px rgba(0,0,0,0.8)",
+        "description": "文字描边/阴影，任意合法 CSS text-shadow 值。"
+      }
+    },
+    "extra": {
+      "type": "object",
+      "required": false,
+      "description": "源特有属性容器：任意键值，解析器必须原样保留并忽略其内容。建议按源站分组嵌套，如 extra.bilibili、extra.niconico。键不得与 core / style 中的预定义键重复。"
+    },
+    "unknownFields": {
+      "type": "any",
+      "required": false,
+      "description": "item 中的其他未知字段：解析器必须忽略且不得导致解析失败（前向兼容）。若携带源特有信息，强烈建议改用 extra。"
+    }
+  },
+  "extensibility": {
+    "description": "属性可扩展性约定，所有转换工具与解析器必须遵守。",
+    "principles": [
+      "规格演进只允许新增可选字段，禁止修改或删除既有字段的语义（向后兼容）。",
+      "解析器遇到任何未知字段（顶层 / meta / item 各层级）必须忽略，不得报错或丢弃整条弹幕。",
+      "源特有属性一律放入 extra 容器（meta.extra / source.extra / item.extra），禁止占用预定义键名。",
+      "extra 内的键名自由，但建议按源站分组（如 extra.bilibili）并在键名前不加前缀；若必须写入预定义层级之外的顶层键，必须以 x- 前缀命名。",
+      "转换工具不得对未知字段做类型假设，写入时保持原始值即可。"
+    ],
+    "reserved": {
+      "topLevel": ["format", "version", "meta", "danmaku"],
+      "meta": ["id", "title", "source", "generator", "generatedAt", "extra"],
+      "source": ["type", "name", "url", "originalFormat", "importedAt", "extra"],
+      "item": ["page", "text", "color", "size", "fontSize", "position", "weight", "shadow", "extra"]
+    }
+  },
+  "validation": {
+    "rules": [
+      "文件必须是合法 JSON 且顶层为对象。",
+      "format 存在时必须等于 comic-danmaku；不存在时按 meta + danmaku 结构启发式识别（兼容旧文件）。",
+      "version 存在时必须为正整数，且不得大于解析器支持的最大版本。",
+      "danmaku 必须为数组；meta 若存在必须为对象。",
+      "每条弹幕：page 必须为 >= 1 的整数，text 必须为非空字符串，否则该条视为无效并跳过（记录跳过计数，不中断整体加载）。",
+      "无效条目：跳过并累计计数，完成后提示 共 N 条，跳过 M 条。",
+      "输出建议按 page 升序排列；解析器必须容忍乱序输入。",
+      "未知字段一律忽略，不得导致解析失败。",
+      "最小体积形式：所有可选字段均可省略，省略即使用默认值；空的可选对象（如 meta / extra）应整体省略。转换器输出应省略默认值字段并压缩为单行 JSON。"
+    ]
+  },
+  "example": {
+    "description": "完整示例（最小体积形式：仅保留必填字段与非默认样式字段，省略 meta 与空 extra）：",
+    "data": {
+      "format": "comic-danmaku",
+      "version": 1,
+      "danmaku": [
+        {
+          "page": 1,
+          "text": "哈哈哈哈哈哈",
+          "color": "#ff5722",
+          "extra": {
+            "bilibili": {
+              "cid": 123456
+            }
+          }
+        },
+        {
+          "page": 1,
+          "text": "前方高能",
+          "color": "#00ff00",
+          "fontSize": 36
+        },
+        {
+          "page": 2,
+          "text": "泪目"
+        }
+      ]
+    }
+  }
+}

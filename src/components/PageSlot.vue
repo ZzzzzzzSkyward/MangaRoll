@@ -1,13 +1,10 @@
-<script>
-const urlCache = new Map()
-const revokeTimers = new Map()
-</script>
-
 <script setup>
 import { computed, onMounted, onBeforeUnmount } from 'vue'
 import DanmakuLayer from './DanmakuLayer.vue'
 import { state } from '../store'
 import { MODE_VERTICAL } from '../lib/modes'
+import { getBlobUrl, scheduleBlobRevoke } from '../lib/blobUrlCache'
+import { toDanmakuItems } from '../utils/danmakuHelpers'
 
 const props = defineProps({
   index: { type: Number, required: true },
@@ -43,37 +40,17 @@ const imgStyle = computed(() => {
   return { width: props.along + 'px', height: 'auto' }
 })
 
-const danmakuList = computed(() => state.danmaku?.byPage?.get(props.index + 1) || [])
+const poolForPage = computed(() => {
+  const raw = state.danmaku?.byPage?.get(props.index + 1)
+  return raw ? toDanmakuItems(raw) : []
+})
 
 onMounted(() => {
-  const key = props.page.key
-  let url = urlCache.get(key)
-  if (!url) {
-    url = URL.createObjectURL(props.page.file)
-    urlCache.set(key, url)
-  }
-  const t = revokeTimers.get(key)
-  if (t) clearTimeout(t)
-  revokeTimers.delete(key)
-  props.page.url = url
+  props.page.url = getBlobUrl(props.page.key, props.page.file)
 })
 
 onBeforeUnmount(() => {
-  const key = props.page.key
-  const url = urlCache.get(key)
-  if (!url) return
-  const t = revokeTimers.get(key)
-  if (t) clearTimeout(t)
-  revokeTimers.set(
-    key,
-    setTimeout(() => {
-      if (urlCache.get(key) === url) {
-        URL.revokeObjectURL(url)
-        urlCache.delete(key)
-      }
-      revokeTimers.delete(key)
-    }, 1000)
-  )
+  scheduleBlobRevoke(props.page.key)
 })
 </script>
 
@@ -81,11 +58,8 @@ onBeforeUnmount(() => {
   <div class="page-slot" :style="style">
     <img class="page-img" :src="page.url" :style="imgStyle" decoding="async" :alt="page.name" />
     <DanmakuLayer
-      v-if="active && state.mode === MODE_VERTICAL && state.danmaku && state.danmakuOn"
-      :page-key="index"
-      :list="danmakuList"
-      :width="cross"
-      :height="along"
+      v-if="state.mode === MODE_VERTICAL && state.danmaku && state.danmakuOn"
+      :initial-pool="poolForPage"
       :speed="state.danmakuSpeed"
       :opacity="state.danmakuOpacity"
     />

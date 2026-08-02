@@ -1,7 +1,8 @@
 import { reactive, ref, watch } from 'vue'
 import { walkItems, unzip, extractDims, naturalCompare, isImage, isJson, isZip } from './lib/importer'
 import { MODE_VERTICAL, isMode, isHorizontalMode } from './lib/modes'
-import { isNicoNicoFormat, parseNicoNico } from './lib/danmakuFormats'
+import { parseUniversalDanmaku } from './lib/danmakuParser'
+import { flushBlobCache } from './lib/blobUrlCache'
 
 export const state = reactive({
   status: 'empty', // 'empty' | 'loading' | 'ready'
@@ -79,7 +80,7 @@ watch(
 )
 
 function releasePages() {
-  for (const p of state.pages) if (p.url) URL.revokeObjectURL(p.url)
+  flushBlobCache()
   state.pages = []
 }
 
@@ -124,6 +125,8 @@ function titleFrom(entries, kind) {
 }
 
 async function handleEntries(entries, kind) {
+  // importId 递增标记用于竞态防护：解压 / 读图是异步的，
+  // 若期间用户又触发了新导入，旧的异步结果应被丢弃。
   const currentImportId = ++importId
   const externalJsons = entries.filter((e) => isJson(e.path))
   const zips = entries.filter((e) => isZip(e.path))
@@ -181,52 +184,41 @@ function onlyJsonEntries(entries) {
   return entries.length > 0 && entries.every((e) => isJson(e.path))
 }
 
-export async function importDropped(items) {
-  const prevStatus = state.status
+async function runImport(obtainEntries, prevStatus) {
   state.status = 'loading'
   state.loading = { label: '扫描文件夹…', current: 0, total: 0 }
   try {
-    const entries = await walkItems(items)
+    const entries = await obtainEntries()
     if (!entries.length) {
-      state.status = 'empty'
       showToast('未读取到文件')
+      state.status = prevStatus === 'ready' ? prevStatus : 'empty'
       return
     }
     if (onlyJsonEntries(entries)) {
       await loadDanmakuFile(entries[0].file)
-      state.status = prevStatus
+      state.status = prevStatus === 'ready' ? prevStatus : 'empty'
       return
     }
     await handleEntries(entries, 'folder')
   } catch (e) {
     console.error(e)
-    state.status = 'empty'
     showToast('导入失败：' + e.message)
+    state.status = prevStatus === 'ready' ? prevStatus : 'empty'
   }
 }
 
+export async function importDropped(items) {
+  return runImport(
+    () => walkItems(items),
+    state.status
+  )
+}
+
 export async function importFolder(items) {
-  const prevStatus = state.status
-  state.status = 'loading'
-  state.loading = { label: '扫描文件夹…', current: 0, total: 0 }
-  try {
-    const entries = items[0]?.path !== undefined ? items : await walkItems(items)
-    if (!entries.length) {
-      state.status = 'empty'
-      showToast('未读取到文件')
-      return
-    }
-    if (onlyJsonEntries(entries)) {
-      await loadDanmakuFile(entries[0].file)
-      state.status = prevStatus
-      return
-    }
-    await handleEntries(entries, 'folder')
-  } catch (e) {
-    console.error(e)
-    state.status = 'empty'
-    showToast('导入失败：' + e.message)
-  }
+  return runImport(
+    () => (items[0]?.path !== undefined ? items : walkItems(items)),
+    state.status
+  )
 }
 
 export async function importZip(file) {
@@ -244,32 +236,10 @@ export async function importZip(file) {
 export async function loadDanmakuFile(file) {
   try {
     const text = await file.text()
-    const data = JSON.parse(text)
-    let byPage, count
-    if (isNicoNicoFormat(data)) {
-      const result = parseNicoNico(data)
-      byPage = result.byPage
-      count = result.count
-      console.log(`[弹幕] NicoNico解析完成: ${count}条, 分布:`, [...byPage.entries()].map(([k,v]) => `p${k}:${v.length}`).join(', '))
-    } else {
-      if (!Array.isArray(data.danmaku)) throw new Error('缺少 danmaku 数组')
-      byPage = new Map()
-      count = 0
-      const unit = Number(data.meta?.timeUnit) || 1
-      for (const item of data.danmaku) {
-        if (!item || typeof item.text !== 'string' || !Number.isFinite(item.page)) continue
-        const time = Number(item.time)
-        if (!Number.isFinite(time)) continue
-        const arr = byPage.get(item.page) || []
-        arr.push({ ...item, time: time * unit })
-        byPage.set(item.page, arr)
-        count++
-      }
-      for (const arr of byPage.values()) arr.sort((a, b) => a.time - b.time)
-    }
-    state.danmaku = { byPage, count }
+    const result = parseUniversalDanmaku(JSON.parse(text))
+    state.danmaku = { byPage: result.byPage, count: result.count }
     state.danmakuOn = true
-    showToast(`弹幕已加载：${count} 条`)
+    showToast(`弹幕已加载：${result.count} 条${result.skipped ? `，跳过 ${result.skipped} 条无效` : ''}`)
   } catch (e) {
     console.error(e)
     showToast('弹幕 JSON 解析失败')

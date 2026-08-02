@@ -24,12 +24,12 @@
   - 拖拽松手后带惯性滑动（含阻尼衰减）
   - 双指捏合缩放（0.5× – 3×）
   - 横向模式滚轮带惯性滚动
-- **弹幕系统**：漫画页面上方叠加一层可开关的弹幕，数据源为独立的 JSON 文件（见下文格式）
+- **弹幕系统 v2**：漫画页面上方叠加快可开关弹幕层，每张图片拥有独立弹幕池，弹幕横向滚动并循环回收，轨道无重叠、视口感知暂停（见下文格式）
 - **性能优化**
   - 虚拟渲染（Virtualization）：仅渲染视口附近 ±1.5 屏的页面节点，支持超长漫画
   - 图片懒加载：`blob` URL 按需创建、移出视口后延迟 `revokeObjectURL` 释放
   - 导入阶段：`Image` 解码使用并发池（默认 4 并发），进度条实时反馈，不阻塞 UI
-  - 滚动、缩放动画与弹幕使用 `requestAnimationFrame` 驱动，避免主线程卡顿
+  - 滚动、缩放动画使用 `requestAnimationFrame` 驱动，弹幕由 Web Animations API（合成器线程）处理，避免主线程卡顿
   - 缩放时以视口中心为锚点平滑过渡，保证阅读位置不漂移
 - **阅读工具栏**
   - 模式切换（纵向 / 横向 / 右左）、页码跳转
@@ -70,35 +70,48 @@ comicreader/
     ├── store.js             # 响应式状态：导入、模式、缩放、弹幕、平板模式、进度记忆
     ├── style.css            # 全局样式与主题变量
     ├── lib/
-    │   └── importer.js      # 文件夹递归遍历、ZIP 解压、图片尺寸提取、自然排序
+    │   ├── importer.js      # 文件夹递归遍历、ZIP 解压、图片尺寸提取、自然排序
+    │   ├── danmakuParser.js # 通用弹幕格式解析（规范见 spec_danmaku.json）
+    │   └── modes.js         # 阅读模式常量
+    ├── types/
+    │   └── danmaku.ts       # 弹幕数据模型（DanmakuItem 等）
+    ├── composables/
+    │   ├── useGestureScroll.js      # 拖拽 / 惯性滚动
+    │   ├── usePinch.js              # 双指缩放
+    │   ├── useStripLayout.js        # 虚拟滚动布局
+    │   ├── useTrackScheduler.ts     # 弹幕轨道调度（无重叠）
+    │   ├── useRandomScheduler.ts    # 弹幕随机发射（指数分布 / 突发）
+    │   └── useVisibilityControl.ts  # 弹幕视口感知（IntersectionObserver）
+    ├── utils/
+    │   ├── measureText.ts        # 弹幕文本宽度测量（OffscreenCanvas）
+    │   └── danmakuHelpers.ts     # 弹幕数据转换 / 随机回收
     └── components/
         ├── Toolbar.vue      # 工具栏（含收起 / 浮动按钮）
         ├── DropZone.vue     # 拖放提示区 / 拖放遮罩
+        ├── FilePicker.vue   # 隐藏文件选择器
         ├── ReaderView.vue   # 阅读器容器、键盘与点击翻页
         ├── VirtualStrip.vue # 虚拟滚动核心（纵向 / 横向 / 右左复用）+ 拖拽 / 惯性 / 双指缩放
         ├── PageSlot.vue     # 单页节点：图片懒加载、URL 生命周期、弹幕挂载
-        └── DanmakuLayer.vue # 弹幕层：计时调度、滚动 / 固定弹幕
+        └── DanmakuLayer.vue # 弹幕层 v2：独立弹幕池 + WAAPI 动画 + 自动回收
 ```
 
-## 弹幕 JSON 格式
+## 弹幕文件格式
 
-弹幕数据为一个独立 JSON 文件，可随文件夹 / ZIP 一起拖入（自动加载），或通过工具栏「弹幕」按钮单独选择：
+弹幕数据为一个独立 JSON 文件，遵循**通用弹幕格式**（完整规范见 `spec_danmaku.json`），可随文件夹 / ZIP 一起拖入（自动加载），或通过工具栏「弹幕」按钮单独选择：
 
 ```json
 {
-  "meta": {
-    "id": "my-comic",
-    "title": "漫画标题",
-    "timeUnit": 1000
-  },
+  "format": "comic-danmaku",
+  "version": 1,
   "danmaku": [
     {
       "page": 1,
-      "time": 3500,
       "text": "哈哈哈哈哈哈",
-      "color": "#ff5722",
-      "size": "normal",
-      "position": "scroll"
+      "color": "#ff5722"
+    },
+    {
+      "page": 2,
+      "text": "泪目"
     }
   ]
 }
@@ -107,19 +120,29 @@ comicreader/
 | 字段 | 类型 | 必填 | 说明 |
 | ---- | ---- | ---- | ---- |
 | `page` | number | 是 | 所属页码（从 1 开始） |
-| `time` | number | 是 | 相对该页开始显示的毫秒时间（`timeUnit` 默认 1 = 1ms） |
 | `text` | string | 是 | 弹幕内容 |
 | `color` | string | 否 | 文字颜色，默认白色 |
 | `size` | string | 否 | `small` / `normal` / `large`，默认 `normal` |
+| `fontSize` | number | 否 | 直接指定字号（像素），优先于 `size` |
 | `position` | string | 否 | `scroll`（滚动）/ `top`（顶部固定）/ `bottom`（底部固定），默认 `scroll` |
+| `weight` | string | 否 | 字重，默认 `bold` |
+| `shadow` | string | 否 | 文字阴影，默认 `0 0 4px rgba(0,0,0,0.8)` |
+| `extra` | object | 否 | 源特有属性扩展容器，解析器保留但不解析其内容 |
 
-行为约定：
+体积约定：除 `page` / `text` 外均为可选字段，省略即使用默认值；为空的可选对象（如 `meta` / `extra`）整体省略。转换器输出省略默认值字段并压缩为单行 JSON，以最小化文件体积。
+
+可扩展性约定：未知字段一律忽略，解析失败仅丢弃无效条目（`page` 非 ≥1 整数或 `text` 为空），`format` / `version` 用于格式标识与版本兼容；多来源弹幕可由转换工具统一转换为本格式。详见 `spec_danmaku.json`。
+
+行为约定（v2）：
 
 - 弹幕仅在纵向阅读模式下显示
-- 计时以「当前页展示时长」为基准，离开页面时暂停，回到页面时继续
+- 每张图片拥有**独立弹幕池**：弹幕从池中取出发射，移出屏幕后自动回收进池尾（随机位置插入打乱顺序），循环播放，无需外部补充
+- 轨道防重叠：轨道数 = 图片高度 / 字号，同一时刻同一轨道最多一条弹幕；发射间隔服从指数分布，支持突发模式（默认概率 0.25）
+- 数量补足：当某页弹幕数量少于轨道数时，自动按倍数复制弹幕池（`ceil(轨道数/数量)`），避免弹幕过于稀疏
 - 弹幕层 `pointer-events: none`，不干扰阅读交互；弹幕随页面一起滚动，不固定在视口
-- 单页同时最多渲染 50 条，超出部分排队显示
-- 固定弹幕（`top` / `bottom`）默认停留约 4.2 秒后淡出
+- 视口感知：使用 `IntersectionObserver`（可见比例 ≥ 10% 视为可见），图片离开视口即暂停发射与动画，节省 CPU
+- 后台暂停：标签页隐藏（`visibilitychange`）时自动暂停所有弹幕发射与动画，切回前台自动恢复
+- `position`（顶部 / 底部固定）字段在 v2 中不再区分，统一按滚动弹幕播放
 
 ## 技术方案
 
@@ -132,7 +155,8 @@ comicreader/
 | 虚拟渲染 | 绝对定位 + 前缀和布局 + 二分查找视口区间（含右左模式的反向前缀和） |
 | 拖拽 / 惯性 | Pointer Events + `requestAnimationFrame` 惯性衰减 |
 | 双指缩放 | Touch Events 距离比映射缩放值 |
-| 弹幕渲染 | DOM + CSS transform 动画 + `requestAnimationFrame` 调度 |
+| 弹幕渲染 | DOM + Web Animations API（`translateX` 合成器动画）+ 独立对象池回收 |
+| 弹幕调度 | 指数分布随机发射 + 无重叠轨道调度 + IntersectionObserver 视口感知 |
 | 进度记忆 | `localStorage`（key 为漫画标题） |
 
 ## 待办（Roadmap）

@@ -22,6 +22,8 @@ export function isZip(name) {
   return extOf(name) === 'zip'
 }
 
+// 逐层递归读取目录条目。浏览器要求多次 readEntries 才能取完一个目录，
+// 因此每次取一批后继续拼装，直到某批为空（readEntries 每次最多返回100项）。
 function walkEntry(entry, path, out) {
   if (entry.isFile) {
     return new Promise((resolve, reject) => {
@@ -60,6 +62,7 @@ export async function walkItems(items) {
       continue
     }
     if (!item) continue
+    // webkitGetAsEntry 仅在拖拽场景提供目录句柄；普通文件选择走 getAsFile 兜底
     const entry = item.webkitGetAsEntry && item.webkitGetAsEntry()
     if (entry) jobs.push(walkEntry(entry, entry.name, out))
     else if (item.getAsFile) {
@@ -87,6 +90,7 @@ export async function unzip(file, onProgress) {
   return entries
 }
 
+// 解码失败返回 null（调用方过滤掉损坏图片），对象 URL 在此及时释放
 function readDims(file) {
   const url = URL.createObjectURL(file)
   return new Promise((resolve) => {
@@ -103,6 +107,8 @@ function readDims(file) {
   })
 }
 
+// 固定并发数的 Worker 池：各 worker 共享一个原子游标 idx，
+// 保证每个条目恰好被读取一次且整体并发不超过 concurrency
 export async function extractDims(entries, onProgress, concurrency = 4) {
   const pages = new Array(entries.length)
   let idx = 0
