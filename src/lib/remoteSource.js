@@ -22,7 +22,11 @@ function ensureSlash(u) {
 
 export async function loadManifest(baseUrl) {
   const base = assertHttp(baseUrl)
-  const manifestUrl = resolveUrl('index.json', base)
+  // 允许直接指向清单文件（以 .json 结尾）或目录 URL（读取目录下的 index.json）
+  const isFile = /\.json$/i.test(base)
+  // 相对路径以 .json 所在目录 / 目录 URL 为基准解析
+  const dirBase = isFile ? base.replace(/[^/]+$/, '') : base
+  const manifestUrl = isFile ? base : resolveUrl('index.json', dirBase)
   const res = await fetch(manifestUrl)
   if (!res.ok) throw new Error(`manifest 请求失败：${res.status}`)
   const m = await res.json()
@@ -31,7 +35,7 @@ export async function loadManifest(baseUrl) {
     .map((p) => {
       const ref = p.url || p.name
       if (!ref) return null
-      const src = resolveUrl(ref, base)
+      const src = resolveUrl(ref, dirBase)
       return {
         remote: true,
         src,
@@ -41,7 +45,11 @@ export async function loadManifest(baseUrl) {
       }
     })
     .filter(Boolean)
-  const title = m.title || decodeURIComponent(base.split('/').filter(Boolean).pop() || base)
+  // 标题回退：以 .json 结尾时取清单所在目录名；否则取目录 URL 末段
+  const segs = decodeURIComponent(base).split('/').filter(Boolean).map(decodeURIComponent)
+  let fallbackTitle = segs[segs.length - 1] || base
+  if (isFile) fallbackTitle = segs[segs.length - 2] || fallbackTitle
+  const title = m.title || fallbackTitle
   return { title, pages }
 }
 

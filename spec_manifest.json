@@ -1,0 +1,116 @@
+{
+  "spec": {
+    "name": "comic-manifest-universal",
+    "version": "1.0.0",
+    "formatCode": "comic-manifest",
+    "description": "远程漫画目录清单（Manifest JSON）格式规范：由漫画目录提供方在目录根放置 index.json，声明作品标题与页面图片列表，供阅读器通过「远程 URL 加载 → Manifest JSON」导入。",
+    "compatibility": "本格式描述的是阅读器当前实现（src/lib/remoteSource.js loadManifest）的实际输入约定；目录提供方只要产出符合本规范的 index.json 即可被直接加载，无需安装任何依赖或服务端程序。"
+  },
+  "structure": {
+    "description": "文件为合法 JSON 对象，存放于目录根，默认文件名 index.json；预定义顶层键仅 2 个，其余未知顶层键必须被解析器忽略（见 extensibility）。",
+    "keys": {
+      "title": {
+        "type": "string",
+        "required": false,
+        "description": "作品标题，用于阅读进度记忆的 key 与标题栏显示。省略时回退为目录 URL 末段目录名。"
+      },
+      "pages": {
+        "type": "array",
+        "required": true,
+        "description": "页面图片条目数组，元素见 pageFields。元素顺序即漫画阅读顺序，读取器不再重新排序。"
+      }
+    }
+  },
+  "pageFields": {
+    "description": "pages 数组元素：url / name 至少提供一个（缺省整条跳过）；w / h 可选，提供后可免去首图加载时的尺寸回填。",
+    "core": {
+      "url": {
+        "type": "string",
+        "required": false,
+        "constraints": "http(s) 绝对地址，或相对目录根的相对路径",
+        "description": "页面图片地址。相对路径以目录 URL（index.json 所在目录）解析为绝对地址；url 与 name 同时存在时以 url 为准。"
+      },
+      "name": {
+        "type": "string",
+        "required": false,
+        "description": "页面图片名称。作为相对路径解析时的候补；省略时取 url 解析结果的文件名。"
+      }
+    },
+    "size": {
+      "w": {
+        "type": "number",
+        "required": false,
+        "default": 0,
+        "constraints": "正整数，像素；0 / 缺省表示未知",
+        "description": "图片自然宽度。提供后阅读器直接使用，未知（0）时在首图加载完成后由解码自动回填，触发布局重算一次。"
+      },
+      "h": {
+        "type": "number",
+        "required": false,
+        "default": 0,
+        "constraints": "正整数，像素；0 / 缺省表示未知",
+        "description": "图片自然高度，规则同 w。"
+      }
+    },
+    "unknownFields": {
+      "type": "any",
+      "required": false,
+      "description": "条目中的其他未知字段（如弹幕扩展）：解析器必须忽略且不得导致解析失败（前向兼容）。若携带扩展信息，强烈建议改用额外预留字段（见 extensibility）。"
+    }
+  },
+  "resolvedFields": {
+    "description": "阅读器加载后派生出的页面条目字段（由客户端计算，目录提供方无需填写）：",
+    "fields": {
+      "remote": "恒为 true，标记走 URL 直读路径（不创建 blob URL）。",
+      "src": "url 或 name 解析后的绝对 http(s) 地址。",
+      "name": "条目的显示名：优先 name，否则取 src 的文件名。",
+      "w": "与 manifest 的 w 一致，未知时为 0。",
+      "h": "与 manifest 的 h 一致，未知时为 0。"
+    }
+  },
+  "extensibility": {
+    "description": "属性可扩展性约定，目录提供方与解析器必须遵守。",
+    "principles": [
+      "规格演进只允许新增可选字段，禁止修改或删除既有字段的语义（向后兼容）。",
+      "解析器遇到任何未知字段（顶层 / 页面条目各层级）必须忽略，不得报错或丢弃整条页面。",
+      "扩展属性一律使用独立字段或预留命名，禁止占用 title / pages 与条目内 url / name / w / h 键名。",
+      "弹幕联动扩展建议预留字段 danmakuUrl（指向同一目录的弹幕 JSON，见 spec_danmaku.json）；当前版本阅读器尚未实现，见则忽略。"
+    ],
+    "reserved": {
+      "topLevel": ["title", "pages"],
+      "page": ["url", "name", "w", "h"],
+      "future": ["danmakuUrl"]
+    }
+  },
+  "transport": {
+    "description": "读取协议要求。",
+    "cors": "目录必须允许跨域访问：阅读器在浏览器内直接 fetch，需返回 Access-Control-Allow-Origin: *（或阅读器所在源），否则加载失败。",
+    "fetch": "GET {baseUrl}/index.json；baseUrl 为目录 URL，末尾缺斜杠时自动补齐。",
+    "status": "HTTP 非 2xx 视为加载失败。",
+    "pathResolution": "相对路径经 new URL(ref, ensureSlash(baseUrl)) 解析，即相对 index.json 所在目录。"
+  },
+  "validation": {
+    "rules": [
+      "文件必须是合法 JSON 且顶层为对象。",
+      "pages 必须为数组；缺失或非数组时视为空列表，阅读器提示未找到图片。",
+      "title 存在时必须为字符串；省略时回退为目录 URL 末段目录名。",
+      "每条页面：url / name 至少提供一个，且必须为字符串，否则该条视为无效并跳过；url 与 name 同时存在时以 url 为准。",
+      "w / h 存在时按数字解析，无法解析为数字时按 0（未知）处理；两者缺失视为未知。",
+      "无效条目：跳过并继续加载其余条目，不中断整体导入。",
+      "未知字段一律忽略，不得导致解析失败。",
+      "最小体积形式：title 省略、页面可省略 w / h（由客户端回填），空的可选字段整体省略。"
+    ]
+  },
+  "example": {
+    "description": "完整示例（最小体积形式：仅保留必填字段，省略 title 与 w / h）：",
+    "data": {
+      "title": "示例漫画",
+      "pages": [
+        { "url": "001.jpg", "w": 900, "h": 1270 },
+        { "name": "002.jpg" },
+        { "url": "subdir/003.jpg" },
+        { "url": "https://cdn.example.com/manga/004.jpg" }
+      ]
+    }
+  }
+}

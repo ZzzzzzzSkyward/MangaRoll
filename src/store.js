@@ -263,8 +263,9 @@ export async function importZip(file) {
 }
 
 // 远程 URL 导入：走 runImport 类似流程（loading 层 + 竞态防护），
-// 远程页不创建 blob URL，标题取 manifest.title 或 URL 末段目录名。
-export async function importRemote(mode, url) {
+// 远程页不挂 blob URL，标题取 manifest.title 或 URL 末段目录名。
+// opts.page 为起始页码（1 起），opts.danmakuUrl 为联动远程弹幕 JSON（见 README「URL 接口」）。
+export async function importRemote(mode, url, opts = {}) {
   const currentImportId = ++importId
   state.status = 'loading'
   state.loading = { label: mode === 'manifest' ? '加载清单…' : '读取 WebDAV…', current: 0, total: 0 }
@@ -285,12 +286,33 @@ export async function importRemote(mode, url) {
     state.zoom = 1
     state.zoomMode = 'width'
     restoreProgress()
+    // 显式指定的起始页优先于进度记忆（会覆盖 restoreProgress 的结果）
+    if (Number.isInteger(opts.page) && opts.page >= 1) {
+      state.current = Math.min(Math.max(0, opts.page - 1), pages.length - 1)
+    }
     state.status = 'ready'
     showToast(`已加载 ${pages.length} 页（远程）`)
+    if (opts.danmakuUrl) await loadRemoteDanmaku(opts.danmakuUrl)
   } catch (e) {
     console.error(e)
     showToast('远程加载失败：' + e.message)
     if (state.status === 'loading') state.status = 'empty'
+  }
+}
+
+// 从远程 URL 拉取并挂载弹幕 JSON（通用弹幕格式，见 spec_danmaku.json），需服务端开 CORS
+export async function loadRemoteDanmaku(url) {
+  try {
+    const res = await fetch(url)
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const data = await res.json()
+    const result = parseUniversalDanmaku(data)
+    state.danmaku = { byPage: result.byPage, count: result.count }
+    state.danmakuOn = true
+    showToast(`弹幕已加载（${result.count} 条${result.skipped ? `，跳过 ${result.skipped} 条无效` : ''}）`)
+  } catch (e) {
+    console.error(e)
+    showToast('远程弹幕加载失败')
   }
 }
 

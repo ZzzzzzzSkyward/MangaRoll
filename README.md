@@ -32,16 +32,23 @@
   - 滚动、缩放动画使用 `requestAnimationFrame` 驱动，弹幕由 Web Animations API（合成器线程）处理，避免主线程卡顿
   - 缩放时以视口中心为锚点平滑过渡，保证阅读位置不漂移
 - **阅读工具栏**
+  - 「远程」：打开远程来源对话框（Manifest / WebDAV）；「弹幕」：单独导入弹幕 JSON
   - 模式切换（纵向 / 横向 / 右左）、页码跳转
   - 缩放：放大 / 缩小 / 适应宽度 / 适应高度
-  - 弹幕开关、透明度滑杆、速度调节（0.5× – 2×）
-  - 平板模式开关
+  - 自动裁边开关、弹幕开关、透明度滑杆、速度调节（0.5× – 2×）
+  - 平板模式开关、「设置」按钮（渲染 / 快捷键 / OCR 分页）
   - 工具栏可整体收起为右上角浮动按钮（10 秒无操作自动淡化）
 - **快捷键**
   - `←` / `→` / `↑` / `↓`：横向 / 右左模式翻页，纵向模式上下滚动
   - `Space`：下一页；`PageUp` / `PageDown`：滚动一屏
   - `Home` / `End`：首页 / 末页；`D`：弹幕开关；`F`：全屏
 - **阅读进度记忆**：自动记录当前位置与模式（`localStorage`，500ms 节流），下次打开同一漫画自动恢复
+- **智能裁边**：导入时逐页分析四周白 / 黑边并记录裁剪矩形，渲染用 `clip-path` 无损裁掉，可开关（工具栏 / 快捷键 / 设置）
+- **最大渲染尺寸限制**：导入阶段将长边超上限的图片等比缩小并重新编码（JPEG，带透明通道转 PNG），降低解码与渲染开销，重新导入后生效
+- **摩尔纹去噪**：WebGL1 双边滤波（空间 × 亮度差双权重），保留线条锐度同时抹平印刷网点，可见页按需处理并缓存复用，不阻塞滚动
+- **自定义快捷键**：工具栏「设置 → 快捷键」为每个动作绑定任意组合键（Ctrl / Alt / Shift / Meta 前缀），Enter 确认、Esc 取消、冲突检测、可恢复默认
+- **远程 URL 加载**：支持 Manifest JSON 与 WebDAV 目录两种远程来源（需对方开启 CORS），远程页 URL 直读、不建 blob 缓存（见「远程来源」）
+- **云端 OCR 文本叠加**：Azure AI Vision Read / 自定义 JSON 端点，进入视口的页面自动识别并叠加文本包围盒，支持开关与配置（见「设置项」）
 
 ## 开发运行
 
@@ -70,9 +77,22 @@ comicreader/
     ├── store.js             # 响应式状态：导入、模式、缩放、弹幕、平板模式、进度记忆
     ├── style.css            # 全局样式与主题变量
     ├── lib/
-    │   ├── importer.js      # 文件夹递归遍历、ZIP 解压、图片尺寸提取、自然排序
+    │   ├── importer.js      # 文件夹递归遍历、ZIP 解压、图片尺寸提取、最大尺寸缩小、自然排序
     │   ├── danmakuParser.js # 通用弹幕格式解析（规范见 spec_danmaku.json）
-    │   └── modes.js         # 阅读模式常量
+    │   ├── modes.js         # 阅读模式常量
+    │   ├── cropDetect.js    # 智能裁边：白 / 黑边检测，返回裁剪矩形
+    │   ├── moireFilter.js   # 摩尔纹去噪：WebGL1 双边滤波
+    │   ├── moireCache.js    # 去网纹结果缓存（按 page.key，延迟 revoke）
+    │   ├── blobUrlCache.js  # blob URL 缓存与延迟释放
+    │   ├── keybindings.js   # 快捷键动作注册表、组合键序列化与分发
+    │   ├── settings.js      # 统一设置存储（裁边 / 摩尔纹 / 最大尺寸 / OCR / 快捷键）
+    │   ├── uiState.js       # 全局 UI 状态（对话框、工具栏收起）
+    │   ├── remoteSource.js  # 远程来源：Manifest JSON / WebDAV PROPFIND 解析
+    │   └── ocr/
+    │       ├── ocrConfig.js    # OCR provider 配置与持久化
+    │       ├── ocrAzure.js     # Azure AI Vision Read 4.0 适配
+    │       ├── ocrGeneric.js   # 自定义 JSON 端点适配
+    │       └── ocrClient.js    # OCR 客户端：分析图生成、缓存、单并发限流
     ├── types/
     │   └── danmaku.ts       # 弹幕数据模型（DanmakuItem 等）
     ├── composables/
@@ -86,13 +106,15 @@ comicreader/
     │   ├── measureText.ts        # 弹幕文本宽度测量（OffscreenCanvas）
     │   └── danmakuHelpers.ts     # 弹幕数据转换 / 随机回收
     └── components/
-        ├── Toolbar.vue      # 工具栏（含收起 / 浮动按钮）
+        ├── Toolbar.vue      # 工具栏（含收起 / 浮动按钮，打开远程 / 设置）
         ├── DropZone.vue     # 拖放提示区 / 拖放遮罩
-        ├── FilePicker.vue   # 隐藏文件选择器
-        ├── ReaderView.vue   # 阅读器容器、键盘与点击翻页
-        ├── VirtualStrip.vue # 虚拟滚动核心（纵向 / 横向 / 右左复用）+ 拖拽 / 惯性 / 双指缩放
-        ├── PageSlot.vue     # 单页节点：图片懒加载、URL 生命周期、弹幕挂载
-        └── DanmakuLayer.vue # 弹幕层 v2：独立弹幕池 + WAAPI 动画 + 自动回收
+        ├── FilePicker.vue   # 隐藏文件选择器（文件夹 / ZIP / 弹幕 JSON）
+        ├── ReaderView.vue   # 阅读器容器、键盘与点击翻页（快捷键查表分发）
+        ├── VirtualStrip.vue # 虚拟滚动核心（纵向 / 横向 / 右左复用）+ 拖拽 / 惯性 / 双指缩放 / Ctrl+滚轮单图缩放
+        ├── PageSlot.vue     # 单页节点：图片懒加载、URL 生命周期、裁边、去网纹、OCR 叠加、弹幕挂载
+        ├── DanmakuLayer.vue # 弹幕层 v2：独立弹幕池 + WAAPI 动画 + 自动回收
+        ├── SettingsDialog.vue # 设置对话框（渲染 / 快捷键 / OCR 三个分页）
+        └── RemoteDialog.vue # 远程来源对话框（Manifest / WebDAV）
 ```
 
 ## 弹幕文件格式
@@ -157,6 +179,12 @@ comicreader/
 | 双指缩放 | Touch Events 距离比映射缩放值 |
 | 弹幕渲染 | DOM + Web Animations API（`translateX` 合成器动画）+ 独立对象池回收 |
 | 弹幕调度 | 指数分布随机发射 + 无重叠轨道调度 + IntersectionObserver 视口感知 |
+| 智能裁边 | 导入时缩略图采样四角与边行 / 列纯色检测，渲染期 `clip-path: inset()` |
+| 摩尔纹去噪 | WebGL1 双边滤波 shader（空间 × 范围高斯），可见页按需处理 + 缓存复用 |
+| 最大渲染尺寸 | 导入阶段 canvas 等比缩小重编码（透明通道保留 PNG），仅约束长边 |
+| 快捷键 | `e.code` 序列化（Ctrl / Alt / Shift / Meta）+ localStorage 持久化查表分发 |
+| 远程来源 | `index.json` Manifest 或 WebDAV `PROPFIND`（`Depth:1`）解析，URL 直读 |
+| OCR | 生成分析图（长边 ≤2000 JPEG）→ Azure Read 4.0 / 自定义端点 → 归一化包围盒叠加 |
 | 进度记忆 | `localStorage`（key 为漫画标题） |
 
 ## 待办（Roadmap）
