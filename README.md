@@ -48,7 +48,7 @@
 - **摩尔纹去噪**：WebGL1 双边滤波（空间 × 亮度差双权重），保留线条锐度同时抹平印刷网点，可见页按需处理并缓存复用，不阻塞滚动
 - **自定义快捷键**：工具栏「设置 → 快捷键」为每个动作绑定任意组合键（Ctrl / Alt / Shift / Meta 前缀），Enter 确认、Esc 取消、冲突检测、可恢复默认
 - **远程 URL 加载**：支持 Manifest JSON 与 WebDAV 目录两种远程来源（需对方开启 CORS），远程页 URL 直读、不建 blob 缓存（见「远程来源」）
-- **云端 OCR 文本叠加**：Azure AI Vision Read / 自定义 JSON 端点，进入视口的页面自动识别并叠加文本包围盒，支持开关与配置（见「设置项」）
+- **本地 OCR 文本叠加**：本地后端（`backend/API.md`，文本区域检测 + manga-ocr 日文识别），进入视口的页面自动识别并叠加气泡包围盒，支持开关与地址配置（见「设置项」）
 
 ## 开发运行
 
@@ -89,10 +89,9 @@ comicreader/
     │   ├── uiState.js       # 全局 UI 状态（对话框、工具栏收起）
     │   ├── remoteSource.js  # 远程来源：Manifest JSON / WebDAV PROPFIND 解析
     │   └── ocr/
-    │       ├── ocrConfig.js    # OCR provider 配置与持久化
-    │       ├── ocrAzure.js     # Azure AI Vision Read 4.0 适配
-    │       ├── ocrGeneric.js   # 自定义 JSON 端点适配
-    │       └── ocrClient.js    # OCR 客户端：分析图生成、缓存、单并发限流
+    │       ├── ocrConfig.js    # OCR 配置（本地后端地址）与持久化
+    │       ├── ocrLocal.js     # 本地后端 /detect?ocr=true 适配（气泡检测 + 日文 OCR）
+    │       └── ocrClient.js    # OCR 客户端：原图字节获取、缓存、单并发限流
     ├── types/
     │   └── danmaku.ts       # 弹幕数据模型（DanmakuItem 等）
     ├── composables/
@@ -184,7 +183,7 @@ comicreader/
 | 最大渲染尺寸 | 导入阶段 canvas 等比缩小重编码（透明通道保留 PNG），仅约束长边 |
 | 快捷键 | `e.code` 序列化（Ctrl / Alt / Shift / Meta）+ localStorage 持久化查表分发 |
 | 远程来源 | `index.json` Manifest 或 WebDAV `PROPFIND`（`Depth:1`）解析，URL 直读 |
-| OCR | 生成分析图（长边 ≤2000 JPEG）→ Azure Read 4.0 / 自定义端点 → 归一化包围盒叠加 |
+| OCR | 原图字节 → 本地后端 /detect?ocr=true（气泡检测 + 日文识别）→ 归一化包围盒叠加；网络失败指数退避重试，超时后标记服务不可用并自动关闭 |
 | 进度记忆 | `localStorage`（key 为漫画标题） |
 
 ## 待办（Roadmap）
@@ -201,7 +200,7 @@ comicreader/
 - [x] Ctrl + 滚轮以光标为锚点缩放
 - [x] 远程 URL 加载（Manifest JSON / WebDAV）
 - [x] 最大渲染尺寸限制 + 摩尔纹去噪（WebGL 双边滤波）
-- [x] 云端 OCR 文本叠加（Azure / 自定义端点）
+- [x] 本地 OCR 文本叠加（本地后端 /detect?ocr=true）
 - [ ] 横向模式下按页预取 / 翻页式单页模式
 - [ ] 支持 `.rar` / `.cbz` 等更多格式
 - [ ] 弹幕字幕（.ass / .srt）导入
@@ -210,7 +209,7 @@ comicreader/
 
 - **渲染**：最大渲染尺寸（重新导入后生效）、摩尔纹开关与强度、自动裁边开关
 - **快捷键**：为每个动作绑定任意组合键（Ctrl / Alt / Shift / Meta 前缀），Enter 确认、Esc 取消，可一键恢复默认
-- **OCR**：选择服务商（Azure AI Vision Read / 自定义 JSON 端点）、填 Endpoint 与 API Key（仅存本机 localStorage），开启后进入视口的页面自动识别
+- **OCR**：本地后端服务地址（默认 `http://localhost:5017`），开启后进入视口的页面自动做文本区域检测 + 日文识别并叠加气泡包围盒；文本可见性（显示 / 隐藏 / 白底）、方向（横 / 纵 / 智能检测——按包围盒宽高比判定明显纵向或横向的文本框并强制对应方向）、可选中（拖选复制）、透明度与全局字体（字号 / 字体 / 字重 / 文字颜色）可调；连接失败自动重试（指数退避，最长约 30s），超时后标记服务不可用并自动关闭 OCR，重新启用或更换地址即恢复
 
 ## 远程来源（工具栏「远程」按钮）
 

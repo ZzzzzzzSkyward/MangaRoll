@@ -171,6 +171,29 @@ watch(
 
 // ---------- OCR（页面进入视口且启用时触发，单并发限流见 ocrClient） ----------
 const ocrOverlay = computed(() => (settings.ocrEnabled && props.page.ocr ? props.page.ocr : []))
+// 全局 OCR 字体样式（字号 / 字体族 / 字重 / 颜色）、透明度、可选中性，叠加层继承给每个文本框
+const ocrLayerStyle = computed(() => ({
+  fontFamily: settings.ocrFontFamily || 'inherit',
+  fontSize: settings.ocrFontSize + 'px',
+  fontWeight: String(settings.ocrFontWeight),
+  color: settings.ocrTextColor,
+  opacity: (settings.ocrTextOpacity ?? 100) / 100,
+  userSelect: settings.ocrSelectable ? 'text' : 'none',
+  WebkitUserSelect: settings.ocrSelectable ? 'text' : 'none',
+}))
+
+// OCR 文本方向：'horizontal' / 'vertical' 为全局强制；'auto' 时按包围盒宽高比智能判定——
+// 日文纵向气泡框明显高瘦（高/宽 ≥ 1.5），横向文本框明显扁宽（宽/高 ≥ 1.5），
+// 接近方形的区域视为不明显，回退纵向显示（日文默认竖排）。
+const OCR_DIR_VERTICAL_RATIO = 1.5
+const OCR_DIR_HORIZONTAL_RATIO = 1 / 1.5
+function lineDirection(line) {
+  if (settings.ocrTextDirection !== 'auto') return settings.ocrTextDirection
+  const ratio = (line.h || 0) / (line.w || 0)
+  if (ratio >= OCR_DIR_VERTICAL_RATIO) return 'vertical'
+  if (ratio <= OCR_DIR_HORIZONTAL_RATIO) return 'horizontal'
+  return 'vertical'
+}
 function ocrStyle(line) {
   // 裁剪开启时：OCR 坐标为整图归一化，映射到裁剪后内容在槽位内的位置（与 img 缩放一致）
   if (cropRect.value) {
@@ -183,6 +206,7 @@ function ocrStyle(line) {
         top: ((line.y * props.page.h - c.top) / ch) * boxH.value + 'px',
         width: Math.max(1, (line.w * props.page.w) / cw) * boxW.value + 'px',
         height: Math.max(1, (line.h * props.page.h) / ch) * boxH.value + 'px',
+        writingMode: lineDirection(line) === 'vertical' ? 'vertical-rl' : 'horizontal-tb',
       }
     }
   }
@@ -193,6 +217,7 @@ function ocrStyle(line) {
     top: geo.y + line.y * geo.h + 'px',
     width: Math.max(1, line.w * geo.w) + 'px',
     height: Math.max(1, line.h * geo.h) + 'px',
+    writingMode: lineDirection(line) === 'vertical' ? 'vertical-rl' : 'horizontal-tb',
   }
 }
 watch(
@@ -266,8 +291,21 @@ function measureRemote() {
       />
     </div>
     <div v-if="moireProcessing" class="page-badge">去网纹中…</div>
-    <div v-if="ocrOverlay.length" class="ocr-layer">
-      <span v-for="(line, i) in ocrOverlay" :key="i" class="ocr-box" :style="ocrStyle(line)">{{ line.text }}</span>
+    <div
+      v-if="ocrOverlay.length"
+      class="ocr-layer"
+      :class="['ocr-mode-' + settings.ocrTextMode, { 'ocr-selectable': settings.ocrSelectable }]"
+      :style="ocrLayerStyle"
+    >
+      <!-- 白底模式：背景垫块单独渲染在文本层之下，重叠时上层白块不再遮挡下层文字 -->
+      <span
+        v-if="settings.ocrTextMode === 'white'"
+        v-for="(line, i) in ocrOverlay"
+        :key="'bg-' + i"
+        class="ocr-bg"
+        :style="ocrStyle(line)"
+      ></span>
+      <span v-for="(line, i) in ocrOverlay" :key="'tx-' + i" class="ocr-box" :style="ocrStyle(line)">{{ line.text }}</span>
     </div>
     <DanmakuLayer
       v-if="state.mode === MODE_VERTICAL && state.danmaku && state.danmakuOn"
@@ -322,9 +360,36 @@ function measureRemote() {
   align-items: center;
   justify-content: center;
   text-align: center;
-  color: #fff;
-  text-shadow: 0 0 3px #000, 0 0 6px rgba(0, 0, 0, 0.9);
-  font-size: 13px;
+  color: inherit;
+  /* 半透明描影：重叠的文本框（DOM 靠后的绘制在上层）不再被高浓度实心阴影完全盖住，
+     与下层文本按透明度混合，保证重叠区域的下方文字仍可见 */
+  text-shadow: 0 0 2px rgba(0, 0, 0, 0.8), 0 0 5px rgba(0, 0, 0, 0.4);
   box-sizing: border-box;
+}
+/* 文本可见性：默认显示（继承叠加层颜色 + 描影）；隐藏时文字透明；白底时白色背景垫底、深色文字 */
+.ocr-layer.ocr-mode-hide .ocr-box {
+  color: transparent;
+  text-shadow: none;
+}
+.ocr-layer.ocr-mode-white .ocr-bg {
+  position: absolute;
+  background: #fff;
+}
+.ocr-layer.ocr-mode-white .ocr-box {
+  color: #000;
+  text-shadow: none;
+  background: none;
+}
+/* 默认不可选中、不拦截鼠标；开启“可选中”后允许框内拖选复制文本 */
+.ocr-box {
+  user-select: none;
+  -webkit-user-select: none;
+  pointer-events: none;
+}
+.ocr-layer.ocr-selectable .ocr-box {
+  user-select: text;
+  -webkit-user-select: text;
+  pointer-events: auto;
+  cursor: text;
 }
 </style>

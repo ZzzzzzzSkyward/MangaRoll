@@ -2,7 +2,8 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { settings, currentKeybindings, resetKeybindings } from '../lib/settings'
 import { ACTION_DEFS, ACTION_NAMES, serializeKey, bindKey, invalidateKeybindings } from '../lib/keybindings'
-import { OCR_PROVIDER_TYPES } from '../lib/ocr/ocrConfig'
+import { OCR_DEFAULT_ENDPOINT } from '../lib/ocr/ocrConfig'
+import { ocrServiceStatus } from '../lib/ocr/ocrClient'
 import { closeSettings } from '../lib/uiState'
 
 const tab = ref('render')
@@ -11,7 +12,6 @@ const candidate = ref(null)
 
 const actionDefs = ACTION_DEFS
 const actionNames = ACTION_NAMES
-const providerTypes = OCR_PROVIDER_TYPES
 
 const keys = computed(() => currentKeybindings())
 
@@ -23,22 +23,25 @@ const maxSizeOptions = [
 ]
 
 // OCR 表单用本地副本，避免输入过程中实时写盘
-const localCfg = ref({ type: 'azure', endpoint: '', apiKey: '' })
+const localEndpoint = ref(OCR_DEFAULT_ENDPOINT)
 watch(
-  () => settings.ocrClient,
+  () => settings.ocrEndpoint,
   (v) => {
-    localCfg.value = v && v.endpoint ? { ...v } : { type: 'azure', endpoint: '', apiKey: '' }
+    localEndpoint.value = v || OCR_DEFAULT_ENDPOINT
   },
   { immediate: true }
 )
 function saveOcr() {
-  const c = localCfg.value
-  if (!c.endpoint) {
-    settings.ocrClient = null
-    return
-  }
-  settings.ocrClient = { type: c.type, endpoint: c.endpoint, apiKey: c.apiKey || '' }
+  settings.ocrEndpoint = localEndpoint.value.trim() || OCR_DEFAULT_ENDPOINT
 }
+
+const ocrStatusLabels = {
+  idle: '未启用',
+  ok: '正常',
+  retrying: '连接失败，重试中…',
+  down: '不可用（已自动关闭）',
+}
+const ocrStatusText = computed(() => ocrStatusLabels[ocrServiceStatus.value] || '未知')
 
 function beginCapture(action) {
   candidate.value = null
@@ -147,24 +150,66 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onCaptureKey, true))
           <div class="sp-row">
             <label class="sp-switch">
               <input type="checkbox" v-model="settings.ocrEnabled" />
-              <span>启用云端 OCR 叠加</span>
+              <span>启用本地 OCR 叠加（气泡检测 + 日文识别）</span>
             </label>
           </div>
           <div class="sp-row">
-            <label>服务商</label>
-            <select v-model="localCfg.type">
-              <option v-for="p in providerTypes" :key="p.value" :value="p.value">{{ p.label }}</option>
+            <label>服务状态</label>
+            <span :class="'ocr-status ocr-status-' + ocrServiceStatus">{{ ocrStatusText }}</span>
+          </div>
+          <div class="sp-row">
+            <label>服务地址</label>
+            <input v-model.trim="localEndpoint" type="text" :placeholder="OCR_DEFAULT_ENDPOINT" />
+          </div>
+          <div class="sp-row">
+            <label>文本可见性</label>
+            <select v-model="settings.ocrTextMode">
+              <option value="show">显示文本</option>
+              <option value="hide">隐藏文本</option>
+              <option value="white">白底显示</option>
             </select>
           </div>
           <div class="sp-row">
-            <label>Endpoint</label>
-            <input v-model.trim="localCfg.endpoint" type="text" placeholder="https://…" />
+            <label>文本方向</label>
+            <select v-model="settings.ocrTextDirection">
+              <option value="auto">智能检测（按文本区域宽高比）</option>
+              <option value="horizontal">横向</option>
+              <option value="vertical">纵向</option>
+            </select>
           </div>
           <div class="sp-row">
-            <label>API Key</label>
-            <input v-model="localCfg.apiKey" type="text" placeholder="…" autoComplete="off" />
+            <label class="sp-switch">
+              <input type="checkbox" v-model="settings.ocrSelectable" />
+              <span>文本可选中（拖选复制）</span>
+            </label>
           </div>
-          <p class="sp-warn">API Key 仅保存在本机 localStorage，注意云服务配额与限流。</p>
+          <div class="sp-row">
+            <label>透明度</label>
+            <input type="range" min="10" max="100" step="5" v-model.number="settings.ocrTextOpacity" />
+            <span class="sp-num">{{ settings.ocrTextOpacity }}%</span>
+          </div>
+          <div class="sp-row">
+            <label>字号</label>
+            <input type="range" min="8" max="32" step="1" v-model.number="settings.ocrFontSize" />
+            <span class="sp-num">{{ settings.ocrFontSize }}px</span>
+          </div>
+          <div class="sp-row">
+            <label>字体</label>
+            <input v-model.trim="settings.ocrFontFamily" type="text" placeholder="默认（继承全局）" />
+          </div>
+          <div class="sp-row">
+            <label>字重</label>
+            <select v-model="settings.ocrFontWeight">
+              <option value="400">常规</option>
+              <option value="700">加粗</option>
+            </select>
+          </div>
+          <div class="sp-row">
+            <label>文字颜色</label>
+            <input type="color" v-model="settings.ocrTextColor" />
+            <span class="sp-hint">仅“显示文本”模式生效</span>
+          </div>
+          <p class="sp-warn">调用本地后端 /detect?ocr=true（文本区域检测 + manga-ocr 日文识别），需先启动 backend 服务。连接失败会自动重试，超过最大时长后标记服务不可用并自动关闭 OCR。</p>
           <div class="sp-actions">
             <button @click="saveOcr">保存 OCR 配置</button>
           </div>
@@ -185,10 +230,15 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onCaptureKey, true))
 .sp-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
 .sp-row { display: flex; align-items: center; gap: 10px; font-size: 13px; }
 .sp-row select, .sp-row input[type='text'] { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; flex: 1; min-width: 0; }
+.sp-row input[type='color'] { width: 46px; height: 30px; padding: 2px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
 .sp-row input[type='range'] { flex: 1; }
 .sp-num { min-width: 24px; text-align: center; color: var(--text-dim); }
 .sp-switch { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .sp-hint { font-size: 12px; color: var(--text-dim); margin: 0; }
+.ocr-status { font-size: 12px; padding: 1px 8px; border-radius: 4px; background: var(--bg); border: 1px solid var(--border); }
+.ocr-status-ok { color: #67c23a; }
+.ocr-status-retrying { color: #e6a23c; }
+.ocr-status-down { color: #f56c6c; }
 .sp-warn { font-size: 12px; color: #e6a23c; margin: 0; }
 .sp-actions { display: flex; gap: 8px; }
 .sp-actions button { background: var(--btn); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px 14px; cursor: pointer; }

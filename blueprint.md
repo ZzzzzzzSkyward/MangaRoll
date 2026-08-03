@@ -55,6 +55,11 @@ ZIP / CBZ 继续使用现有 JSZip（CBZ 即 ZIP 改名，只需扩展识别）�
 > ✅ **已实施**（`lib/ocr/`：ocrConfig / ocrAzure / ocrGeneric / ocrClient；`PageSlot.vue` 视口内自动识别 + 包围盒叠加；`SettingsDialog.vue` OCR 页签；`store.toggleOcr`；快捷键动作 `toggleOCR`）
 >
 > **已确认方案**：云端 OCR API + 整页识别 + 文本包围盒叠加（不做气泡 CV 检测）。
+>
+> 🔄 **2026-08 已迁移为本地后端**（见 `backend/API.md`）：移除 ocrAzure / ocrGeneric，
+> 改为 `lib/ocr/ocrLocal.js` 调用本地 `POST /detect?ocr=true`（文本区域检测 +
+> manga-ocr 日文识别，返回原图像素坐标包围盒）；设置项仅保留本地服务地址
+> （默认 `http://localhost:5017`，持久化于 `settings.ocrEndpoint`）。
 
 **文件改动**：
 - 新增 `src/lib/ocr/ocrConfig.js`：provider 配置 `{ type, apiKey, endpoint }`，
