@@ -1,56 +1,15 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import VirtualStrip from './VirtualStrip.vue'
-import { state } from '../store'
+import { state, setZoom, setZoomMode, toggleDanmaku, toggleTabletMode, toggleCrop, toggleOcr, cycleMode } from '../store'
 import { MODE_RIGHT_TO_LEFT, isHorizontalMode } from '../lib/modes'
+import { serializeKey, resolveAction } from '../lib/keybindings'
+import { ui, toggleToolbar } from '../lib/uiState'
 
 const strip = ref(null)
 
 function last() {
   return state.pages.length - 1
-}
-
-function onKey(e) {
-  const t = e.target
-  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return
-  switch (e.key) {
-    case ' ':
-      e.preventDefault()
-      turn(1)
-      break
-    case 'ArrowRight':
-    case 'ArrowDown':
-      if (isHorizontalMode(state.mode) || e.key === 'ArrowDown') e.preventDefault(), turn(1)
-      break
-    case 'ArrowLeft':
-    case 'ArrowUp':
-      if (isHorizontalMode(state.mode) || e.key === 'ArrowUp') e.preventDefault(), turn(-1)
-      break
-    case 'PageDown':
-      e.preventDefault()
-      scrollVp(1)
-      break
-    case 'PageUp':
-      e.preventDefault()
-      scrollVp(-1)
-      break
-    case 'Home':
-      e.preventDefault()
-      strip.value?.scrollToPage(0)
-      break
-    case 'End':
-      e.preventDefault()
-      strip.value?.scrollToPage(last())
-      break
-    case 'd':
-    case 'D':
-      state.danmakuOn = !state.danmakuOn
-      break
-    case 'f':
-    case 'F':
-      toggleFullscreen()
-      break
-  }
 }
 
 function cur() {
@@ -68,6 +27,38 @@ function scrollVp(d) {
 function toggleFullscreen() {
   if (document.fullscreenElement) document.exitFullscreen()
   else document.documentElement.requestFullscreen?.()
+}
+
+const ACTIONS = {
+  nextPage: () => turn(1),
+  prevPage: () => turn(-1),
+  scrollDown: () => scrollVp(1),
+  scrollUp: () => scrollVp(-1),
+  goStart: () => strip.value?.scrollToPage(0),
+  goEnd: () => strip.value?.scrollToPage(last()),
+  toggleDanmaku: () => toggleDanmaku(),
+  toggleFullscreen: () => toggleFullscreen(),
+  zoomIn: () => setZoom('in'),
+  zoomOut: () => setZoom('out'),
+  fitWidth: () => setZoomMode('width'),
+  fitHeight: () => setZoomMode('height'),
+  toggleCrop: () => toggleCrop(),
+  toggleTablet: () => toggleTabletMode(),
+  cycleMode: () => cycleMode(),
+  toggleToolbar: () => toggleToolbar(),
+  toggleOCR: () => toggleOcr(),
+}
+
+function onKey(e) {
+  if (ui.settingsOpen || ui.remoteOpen) return
+  const t = e.target
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return
+  const s = serializeKey(e)
+  if (!s) return
+  const action = resolveAction(s)
+  if (!action || !ACTIONS[action]) return
+  e.preventDefault()
+  ACTIONS[action]()
 }
 
 function onClick(e) {

@@ -2,7 +2,8 @@
 import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import PageSlot from './PageSlot.vue'
 import { state, setZoomValue } from '../store'
-import { MODE_VERTICAL } from '../lib/modes'
+import { MODE_VERTICAL, MODE_RIGHT_TO_LEFT } from '../lib/modes'
+import { settings } from '../lib/settings'
 import { useStripLayout } from '../composables/useStripLayout'
 import { useGestureScroll } from '../composables/useGestureScroll'
 import { usePinch } from '../composables/usePinch'
@@ -27,6 +28,7 @@ const strip = useStripLayout({
   getPages: () => state.pages,
   getZoomMode: () => state.zoomMode,
   getZoom: () => state.zoom,
+  getCrop: () => settings.cropEnabled,
 })
 
 const gesture = useGestureScroll({
@@ -113,6 +115,8 @@ watch(
     pos.v = 0
     jumpPending = false
     strip.cancelZoom()
+    // 切换阅读模式（布局）时重置单图缩放
+    state.singleZoom = null
     nextTick(() => scrollToPage(state.current, false))
   }
 )
@@ -138,6 +142,53 @@ function scrollByViewport(dir) {
   else scroller.value.scrollBy({ left: d, behavior: 'smooth' })
 }
 
+function lowerBound(arr, x) {
+  let lo = 0
+  let hi = arr.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (arr[mid] < x) lo = mid + 1
+    else hi = mid
+  }
+  return lo
+}
+
+// Ctrl+滚轮：单图缩放 —— 只对光标下的图片做 CSS transform 缩放，不改变整条 strip 布局。
+// 目标图 z-index 临时置顶；切换阅读模式（布局）时重置，单纯滚动不重置。
+// 锚点取光标在图片内的比例（纵/横模式下图片恰好填满槽位，槽位比例即图片比例）。
+function onCtrlWheel(e) {
+  if (!e.ctrlKey) return
+  e.preventDefault()
+  const el = scroller.value
+  const { starts, sizes, cross, total } = layout.value
+  const n = starts.length
+  if (!el || !n) return
+  const rect = el.getBoundingClientRect()
+  const isRtl = props.axis === MODE_RIGHT_TO_LEFT
+  const raw = vertical.value ? e.clientY - rect.top + el.scrollTop : e.clientX - rect.left + el.scrollLeft
+  const contentPos = isRtl ? total - raw : raw
+
+  let idx = lowerBound(starts, contentPos)
+  if (idx > 0 && starts[idx] > contentPos) idx -= 1
+  idx = Math.min(n - 1, Math.max(0, idx))
+
+  const alongSize = sizes[idx]
+  const pageStartPos = isRtl ? total - starts[idx] - alongSize : starts[idx]
+  const ax = alongSize > 0 ? Math.min(1, Math.max(0, (contentPos - pageStartPos) / alongSize)) : 0.5
+  const acrossClient = vertical.value ? e.clientX - rect.left : e.clientY - rect.top
+  const acrossSize = cross[idx]
+  const ay = acrossSize > 0 ? Math.min(1, Math.max(0, acrossClient / acrossSize)) : 0.5
+
+  const prev = state.singleZoom && state.singleZoom.index === idx ? state.singleZoom.zoom : 1
+  const zoom = Math.min(3, Math.max(0.5, prev * Math.exp(-e.deltaY * 0.0016)))
+  state.singleZoom = { index: idx, zoom, ax, ay }
+}
+
+function onWheelProxy(e) {
+  if (e.ctrlKey) onCtrlWheel(e)
+  else gesture.onWheel(e)
+}
+
 onMounted(() => {
   vp.w = scroller.value.clientWidth
   vp.h = scroller.value.clientHeight
@@ -147,7 +198,7 @@ onMounted(() => {
     vp.h = scroller.value.clientHeight
   })
   ro.observe(scroller.value)
-  scroller.value.addEventListener('wheel', gesture.onWheel, { passive: false })
+  scroller.value.addEventListener('wheel', onWheelProxy, { passive: false })
   scroller.value.addEventListener('touchstart', pinch.onTouchStart, { passive: false })
   scroller.value.addEventListener('touchmove', pinch.onTouchMove, { passive: false })
   scroller.value.addEventListener('touchend', pinch.onTouchEnd)
@@ -158,7 +209,7 @@ onBeforeUnmount(() => {
   strip.cancelZoom()
   gesture.dispose()
   ro?.disconnect()
-  scroller.value?.removeEventListener('wheel', gesture.onWheel)
+  scroller.value?.removeEventListener('wheel', onWheelProxy)
   scroller.value?.removeEventListener('touchstart', pinch.onTouchStart)
   scroller.value?.removeEventListener('touchmove', pinch.onTouchMove)
   scroller.value?.removeEventListener('touchend', pinch.onTouchEnd)

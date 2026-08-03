@@ -16,7 +16,7 @@ function lowerBound(arr, x) {
  * 条带布局：正向前缀和 + 缩放动画。
  * 右左模式是正向前缀和的镜像，方向相关的换算（pageStart / rangeFor / pageAt / targetFor）集中在此处。
  */
-export function useStripLayout({ axis, scroller, pos, vp, getPages, getZoomMode, getZoom }) {
+export function useStripLayout({ axis, scroller, pos, vp, getPages, getZoomMode, getZoom, getCrop }) {
   const zoomAnim = ref(1)
 
   const vertical = computed(() => axis.value === MODE_VERTICAL)
@@ -25,6 +25,7 @@ export function useStripLayout({ axis, scroller, pos, vp, getPages, getZoomMode,
 
   const layout = computed(() => {
     const pages = getPages()
+    const cropEnabled = !!getCrop?.()
     const z = zoomAnim.value
     const starts = new Array(pages.length)
     const sizes = new Array(pages.length)
@@ -32,13 +33,26 @@ export function useStripLayout({ axis, scroller, pos, vp, getPages, getZoomMode,
     let acc = 0
     for (let i = 0; i < pages.length; i++) {
       const p = pages[i]
+      // 尺寸未知（远程页懒加载回填前）用占位比例，避免除零/NaN，加载后自动重算
+      let pw = p.w > 0 ? p.w : p.h > 0 ? p.h * 100 / 141 : 100
+      let ph = p.h > 0 ? p.h : p.w > 0 ? p.w * 141 / 100 : 141
+      // 有效尺寸：开启裁边时扣除四边（裁剪后的页面填充槽位，阅读位置稳定）
+      if (cropEnabled && p.crop) {
+        const r = p.crop
+        const cw = p.w - r.left - r.right
+        const ch = p.h - r.top - r.bottom
+        if (cw > 0 && ch > 0) {
+          pw = cw
+          ph = ch
+        }
+      }
       if (vertical.value) {
-        const w = getZoomMode() === 'width' ? vp.w * z : vp.h * z * (p.w / p.h)
-        sizes[i] = w * (p.h / p.w)
+        const w = getZoomMode() === 'width' ? vp.w * z : vp.h * z * (pw / ph)
+        sizes[i] = w * (ph / pw)
         cross[i] = w
       } else {
-        const h = getZoomMode() === 'height' ? vp.h * z : vp.w * z * (p.h / p.w)
-        sizes[i] = h * (p.w / p.h)
+        const h = getZoomMode() === 'height' ? vp.h * z : vp.w * z * (ph / pw)
+        sizes[i] = h * (pw / ph)
         cross[i] = h
       }
       starts[i] = acc
@@ -102,12 +116,20 @@ export function useStripLayout({ axis, scroller, pos, vp, getPages, getZoomMode,
   const anim = { raf: 0, on: false, anchorFrac: 0, lastSet: null }
   let snapPending = false
 
-  function animateZoomTo(target) {
+  function animateZoomTo(target, anchorFrac) {
     const el = scroller.value
     if (!el || !getPages().length || Math.abs(target - zoomAnim.value) < 0.001) return
-    if (!anim.on) {
+    const start = !anim.on
+    if (start) {
       anim.on = true
-      anim.anchorFrac = (pos.v + viewport.value / 2) / Math.max(1, layout.value.total)
+      // 自定义锚点（如 Ctrl+滚轮光标位置）；缺省以视口中心为锚点
+      anim.anchorFrac =
+        typeof anchorFrac === 'number'
+          ? Math.max(0, Math.min(1, anchorFrac))
+          : (pos.v + viewport.value / 2) / Math.max(1, layout.value.total)
+    } else if (typeof anchorFrac === 'number') {
+      // 连续缩放（如持续滚轮）时更新锚点
+      anim.anchorFrac = Math.max(0, Math.min(1, anchorFrac))
     }
     if (anim.raf) cancelAnimationFrame(anim.raf)
     anim.lastSet = null

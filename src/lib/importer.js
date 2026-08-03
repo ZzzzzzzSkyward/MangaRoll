@@ -1,4 +1,5 @@
 import JSZip from 'jszip'
+import { detectCrop } from './cropDetect'
 
 export const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'avif', 'ico'])
 const JSON_EXTS = new Set(['json'])
@@ -95,43 +96,82 @@ export async function unzip(file, onProgress) {
   return entries
 }
 
-// 解码失败返回 null（调用方过滤掉损坏图片），对象 URL 在此及时释放
-function readDims(file) {
+// 解码失败返回 null（调用方过滤掉损坏图片），对象 URL 在此及时释放。
+// 顺带完成两件事：
+//  1. 超过 maxDim（长边上限，0=不限制）的图缩到上限并重新编码替换原 blob；
+//  2. 分析四周白/黑边，返回裁剪矩形（自然像素坐标），供智能裁边开关使用。
+async function readDims(file, maxDim) {
   const url = URL.createObjectURL(file)
-  return new Promise((resolve) => {
-    const img = new Image()
-    img.onload = () => {
-      URL.revokeObjectURL(url)
-      resolve({ w: img.naturalWidth, h: img.naturalHeight })
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const im = new Image()
+      im.onload = () => resolve(im)
+      im.onerror = () => reject(new Error('decode failed'))
+      im.src = url
+    })
+    let w = img.naturalWidth
+    let h = img.naturalHeight
+    let outFile = file
+    let srcForCrop = img
+    if (maxDim && Math.max(w, h) > maxDim) {
+      const ds = await downscaleImg(img, w, h, maxDim, file.type)
+      outFile = ds.blob
+      w = ds.w
+      h = ds.h
+      srcForCrop = ds.canvas
     }
-    img.onerror = () => {
-      URL.revokeObjectURL(url)
-      resolve(null)
+    let crop = null
+    try {
+      crop = detectCrop(srcForCrop)
+    } catch {
+      /* 裁边分析失败不影响页面 */
     }
-    img.src = url
-  })
+    return { file: outFile, w, h, crop }
+  } catch {
+    return null
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
+// 等比缩小并重新编码为 JPEG / PNG（来源带透明通道时保留 PNG）。
+// 返回 { blob, canvas, w, h }；canvas 供后续裁剪分析复用，避免二次绘制。
+async function downscaleImg(img, w, h, maxDim, srcType) {
+  const scale = maxDim / Math.max(w, h)
+  const nw = Math.max(1, Math.round(w * scale))
+  const nh = Math.max(1, Math.round(h * scale))
+  const canvas = document.createElement('canvas')
+  canvas.width = nw
+  canvas.height = nh
+  const ctx = canvas.getContext('2d')
+  ctx.drawImage(img, 0, 0, nw, nh)
+  const keepAlpha = srcType === 'image/png' || srcType === 'image/webp' || srcType === 'image/gif'
+  const blob = await new Promise((resolve) =>
+    canvas.toBlob((b) => resolve(b), keepAlpha ? 'image/png' : 'image/jpeg', keepAlpha ? undefined : 0.92)
+  )
+  return { blob, canvas, w: nw, h: nh }
 }
 
 // 固定并发数的 Worker 池：各 worker 共享一个原子游标 idx，
 // 保证每个条目恰好被读取一次且整体并发不超过 concurrency
-export async function extractDims(entries, onProgress, concurrency = 4) {
-  const pages = new Array(entries.length)
+export async function extractDims(imgs, onProgress, concurrency = 4, maxDim = 0) {
+  const pages = new Array(imgs.length)
   let idx = 0
   async function worker() {
-    while (idx < entries.length) {
+    while (idx < imgs.length) {
       const i = idx++
-      const e = entries[i]
+      const e = imgs[i]
       try {
-        const d = await readDims(e.file)
+        const d = await readDims(e.file, maxDim)
         if (d) {
-          pages[i] = { file: e.file, path: e.path, name: e.file.name, w: d.w, h: d.h }
+          pages[i] = { file: d.file, path: e.path, name: e.file.name, w: d.w, h: d.h, crop: d.crop }
         }
       } catch {
         /* skip corrupt image */
       }
-      if (onProgress) onProgress(idx, entries.length)
+      if (onProgress) onProgress(idx, imgs.length)
     }
   }
-  await Promise.all(Array.from({ length: Math.min(concurrency, Math.max(1, entries.length)) }, worker))
+  await Promise.all(Array.from({ length: Math.min(concurrency, Math.max(1, imgs.length)) }, worker))
   return pages.filter(Boolean)
 }

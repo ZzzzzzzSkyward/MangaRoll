@@ -34,6 +34,14 @@ export function scheduleBlobRevoke(key) {
   )
 }
 
+export function cancelBlobRevoke(key) {
+  const t = revokeTimers.get(key)
+  if (t) {
+    clearTimeout(t)
+    revokeTimers.delete(key)
+  }
+}
+
 export function flushBlobCache() {
   for (const url of urlCache.values()) URL.revokeObjectURL(url)
   for (const t of revokeTimers.values()) clearTimeout(t)

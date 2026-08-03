@@ -1,12 +1,16 @@
 <script setup>
 import { ref, computed } from 'vue'
 import FilePicker from './FilePicker.vue'
-import { state, setMode, setZoom, setZoomMode, jumpTo, toggleDanmaku, toggleTabletMode } from '../store'
+import SettingsDialog from './SettingsDialog.vue'
+import RemoteDialog from './RemoteDialog.vue'
+import { state, setMode, setZoom, setZoomMode, jumpTo, toggleDanmaku, toggleTabletMode, toggleCrop } from '../store'
 import { MODE_VERTICAL, MODE_HORIZONTAL, MODE_RIGHT_TO_LEFT, isHorizontalMode } from '../lib/modes'
+import { settings } from '../lib/settings'
+import { ui, toggleToolbar, openSettings, openRemote } from '../lib/uiState'
 
 const picker = ref(null)
 const jumpVal = ref(null)
-const collapsed = ref(false)
+const collapsed = computed(() => !ui.toolbarOpen)
 const floatVisible = ref(true)
 let fadeTimer = 0
 
@@ -20,6 +24,7 @@ function resetFadeTimer() {
 
 const pct = computed(() => Math.round(state.zoom * 100))
 const danmakuTip = computed(() => (isHorizontalMode(state.mode) ? '弹幕仅在纵向模式显示' : '切换弹幕显示'))
+const cropClass = computed(() => ({ on: settings.cropEnabled }))
 
 function doJump() {
   const v = parseInt(jumpVal.value, 10)
@@ -28,8 +33,8 @@ function doJump() {
   jumpVal.value = null
 }
 function toggleCollapse() {
-  collapsed.value = !collapsed.value
-  if (collapsed.value) {
+  toggleToolbar()
+  if (!ui.toolbarOpen) {
     resetFadeTimer()
   }
 }
@@ -64,6 +69,7 @@ function toggleCollapse() {
       <div class="tb-row-2">
         <button title="打开文件夹" @click="picker.pickFolder()">文件夹</button>
         <button title="打开 ZIP" @click="picker.pickZip()">ZIP</button>
+        <button title="加载远程漫画" @click="openRemote()">远程</button>
         <button title="导入弹幕 JSON" @click="picker.pickDanmaku()">弹幕</button>
         <span class="sep"></span>
 
@@ -77,6 +83,11 @@ function toggleCollapse() {
         <button title="放大" @click="setZoom('in')">+</button>
         <button :class="{ on: state.zoomMode === 'width' }" @click="setZoomMode('width')">适应宽</button>
         <button :class="{ on: state.zoomMode === 'height' }" @click="setZoomMode('height')">适应高</button>
+        <span class="sep"></span>
+
+        <button :class="cropClass" title="自动裁边（白/黑边）" @click="toggleCrop()">
+          裁边
+        </button>
         <span class="sep"></span>
 
         <button :class="{ on: state.danmakuOn }" :title="danmakuTip" @click="toggleDanmaku">
@@ -94,6 +105,8 @@ function toggleCollapse() {
         <button :class="{ on: state.tabletMode }" title="平板模式：开启拖拽惯性和双指缩放" @click="toggleTabletMode">
           平板 {{ state.tabletMode ? '开' : '关' }}
         </button>
+        <span class="sep"></span>
+        <button title="设置（快捷键 / 渲染 / OCR）" @click="openSettings()">设置</button>
       </div>
     </header>
 
@@ -111,6 +124,8 @@ function toggleCollapse() {
     </button>
 
     <FilePicker ref="picker" />
+    <SettingsDialog v-if="ui.settingsOpen" />
+    <RemoteDialog />
   </header>
 </template>
 
@@ -243,7 +258,7 @@ button.on {
   color: var(--text-dim);
 }
 .page-jump {
-  width: 56px;
+  width: 70px;
   background: var(--bg);
   color: var(--text);
   border: 1px solid var(--border);
@@ -298,7 +313,7 @@ select {
     font-size: 12px;
   }
   .page-jump {
-    width: 48px;
+    width: 60px;
     padding: 4px;
     font-size: 12px;
   }

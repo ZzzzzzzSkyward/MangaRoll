@@ -1,8 +1,12 @@
 import { reactive, ref, watch } from 'vue'
 import { walkItems, unzip, extractDims, naturalCompare, isImage, isJson, isDanmakuJson, isZip } from './lib/importer'
-import { MODE_VERTICAL, isMode, isHorizontalMode } from './lib/modes'
+import { MODE_VERTICAL, MODES, isMode, isHorizontalMode } from './lib/modes'
 import { parseUniversalDanmaku } from './lib/danmakuParser'
 import { flushBlobCache } from './lib/blobUrlCache'
+import { settings } from './lib/settings'
+import { flushMoireCache } from './lib/moireCache'
+import { flushOcrCache } from './lib/ocr/ocrClient'
+import { loadManifest, loadWebDav } from './lib/remoteSource'
 
 export const state = reactive({
   status: 'empty', // 'empty' | 'loading' | 'ready'
@@ -19,6 +23,9 @@ export const state = reactive({
   current: 0,
   progressKey: '',
   tabletMode: false,
+  // 单图缩放（Ctrl+滚轮）：{ index, zoom, ax, ay }，仅对目标页 img 做 CSS transform，不改变布局。
+  // index 为页下标；ax / ay 为图片内锚点比例（0~1，transform-origin 用）。切换阅读模式时重置。
+  singleZoom: null,
 })
 
 export const dragging = ref(false)
@@ -81,13 +88,29 @@ watch(
 
 function releasePages() {
   flushBlobCache()
+  flushMoireCache()
+  flushOcrCache()
   state.pages = []
+  state.singleZoom = null
 }
 
 export function setMode(m) {
   state.mode = m
   if (m === MODE_VERTICAL && state.zoomMode === 'height') state.zoomMode = 'width'
   if (isHorizontalMode(m) && state.zoomMode === 'width') state.zoomMode = 'height'
+}
+
+export function cycleMode() {
+  const idx = MODES.indexOf(state.mode)
+  setMode(MODES[(idx + 1) % MODES.length])
+}
+
+export function toggleCrop() {
+  settings.cropEnabled = !settings.cropEnabled
+}
+
+export function toggleOcr() {
+  settings.ocrEnabled = !settings.ocrEnabled
 }
 
 export function toggleDanmaku() {
@@ -164,7 +187,7 @@ async function handleEntries(entries, kind) {
   state.loading = { label: '读取图片信息…', current: 0, total: imgs.length }
   const pages = await extractDims(imgs, (c) => {
     state.loading.current = c
-  })
+  }, 4, settings.maxRenderSize)
   if (currentImportId !== importId) return
   if (!pages.length) {
     state.status = 'empty'
@@ -236,6 +259,38 @@ export async function importZip(file) {
     console.error(e)
     state.status = 'empty'
     showToast('导入失败：' + e.message)
+  }
+}
+
+// 远程 URL 导入：走 runImport 类似流程（loading 层 + 竞态防护），
+// 远程页不创建 blob URL，标题取 manifest.title 或 URL 末段目录名。
+export async function importRemote(mode, url) {
+  const currentImportId = ++importId
+  state.status = 'loading'
+  state.loading = { label: mode === 'manifest' ? '加载清单…' : '读取 WebDAV…', current: 0, total: 0 }
+  try {
+    const { title, pages } = mode === 'manifest' ? await loadManifest(url) : await loadWebDav(url)
+    if (currentImportId !== importId) return
+    if (!pages.length) {
+      showToast('远程目录中未找到图片')
+      state.status = 'empty'
+      return
+    }
+    pages.forEach((p, i) => (p.key = i))
+    releasePages()
+    state.pages = pages
+    state.title = title
+    state.progressKey = state.title
+    state.current = 0
+    state.zoom = 1
+    state.zoomMode = 'width'
+    restoreProgress()
+    state.status = 'ready'
+    showToast(`已加载 ${pages.length} 页（远程）`)
+  } catch (e) {
+    console.error(e)
+    showToast('远程加载失败：' + e.message)
+    if (state.status === 'loading') state.status = 'empty'
   }
 }
 
