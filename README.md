@@ -17,3 +17,11 @@
 ## 后端
 
 1. OCR功能在yolo文件夹，需要python3.13，启动本地服务器`python backend/main.py`
+
+## 截图
+
+![pc](./screenshot/pc.jpg)
+
+![pc](./screenshot/dir.jpg)
+
+![pc](./screenshot/comic.jpg)
