@@ -16,11 +16,10 @@ const picker = ref(null)
       <path d="M4 16v3a2 2 0 002 2h12a2 2 0 002-2v-3" stroke-linecap="round" />
     </svg>
     <h2>将文件夹或 ZIP 拖入此处</h2>
-    <p>支持 jpg / png / gif / webp / bmp / avif / ico 图片与弹幕 JSON，按文件名自然排序</p>
+    <p>支持 jpg / png / gif / webp / bmp / avif / ico 图片，按文件名自然排序</p>
     <div v-if="!overlay" class="dz-buttons">
       <button @click="picker.pickFolder()">选择文件夹</button>
       <button @click="picker.pickZip()">选择 ZIP 文件</button>
-      <button @click="picker.pickDanmaku()">选择弹幕 JSON</button>
     </div>
     <FilePicker ref="picker" />
   </div>
