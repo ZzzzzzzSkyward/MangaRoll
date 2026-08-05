@@ -6,7 +6,7 @@ import OcrOverlay from './OcrOverlay.vue'
 import { state } from '../store'
 import { MODE_VERTICAL } from '../lib/modes'
 import { settings } from '../lib/settings'
-import { getBlobUrl, scheduleBlobRevoke, cancelBlobRevoke } from '../lib/blobUrlCache'
+import { getBlobUrl, scheduleBlobRevoke, cancelBlobRevoke, isBlobCached } from '../lib/blobUrlCache'
 import { toDanmakuItems } from '../utils/danmakuHelpers'
 
 const props = defineProps({
@@ -131,7 +131,7 @@ const poolForPage = computed(() => {
 
 onMounted(() => {
   if (!isRemote.value && props.page.file) {
-    if (!props.page.url) {
+    if (!props.page.url || !isBlobCached(props.page.key)) {
       props.page.url = getBlobUrl(props.page.key, props.page.file)
     } else {
       cancelBlobRevoke(props.page.key)
@@ -142,7 +142,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  if (!isRemote.value && props.page.url) scheduleBlobRevoke(props.page.key)
+  if (!isRemote.value && props.page.url) scheduleBlobRevoke(props.page.key, props.page)
 })
 
 function measureRemote() {

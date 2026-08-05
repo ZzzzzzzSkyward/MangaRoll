@@ -17,7 +17,7 @@ export function getBlobUrl(key, file) {
   return url
 }
 
-export function scheduleBlobRevoke(key) {
+export function scheduleBlobRevoke(key, page) {
   const url = urlCache.get(key)
   if (!url) return
   const t = revokeTimers.get(key)
@@ -30,6 +30,7 @@ export function scheduleBlobRevoke(key) {
         urlCache.delete(key)
       }
       revokeTimers.delete(key)
+      if (page) page.url = null
     }, REVOKE_DELAY)
   )
 }
@@ -40,6 +41,10 @@ export function cancelBlobRevoke(key) {
     clearTimeout(t)
     revokeTimers.delete(key)
   }
+}
+
+export function isBlobCached(key) {
+  return urlCache.has(key)
 }
 
 export function flushBlobCache() {
