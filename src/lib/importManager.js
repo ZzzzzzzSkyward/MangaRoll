@@ -1,5 +1,5 @@
 import { state, showToast, releasePages } from '../store'
-import { walkItems, walkDirHandle, unzip, extractDims, extractDimsInto, naturalCompare, isImage, isJson, isDanmakuJson, isZip, buildFolderTree } from './importer'
+import { walkItems, walkDirHandle, unzip, extractDims, extractDimsInto, naturalCompare, isImage, isJson, isDanmakuJson, isInfoJson, isZip, buildFolderTree } from './importer'
 import { settings } from './settings'
 import { restoreProgress } from './progress'
 import { loadDanmakuFile, loadRemoteDanmaku } from './danmakuLoader'
@@ -22,6 +22,19 @@ export function titleFrom(entries, kind) {
   return entries[0].path.split('/')[0]
 }
 
+async function loadInfoJson(file) {
+  try {
+    const text = await file.text()
+    const data = JSON.parse(text)
+    if (data && data.gallery && typeof data.gallery.subTitle === 'string' && data.gallery.subTitle) {
+      return data.gallery.subTitle
+    }
+  } catch (e) {
+    console.error('info.json 解析失败', e)
+  }
+  return null
+}
+
 export async function openComicFromNode(node) {
   const seq = ++openSeq
   const pending = node.images.filter((p) => !(p.w > 0) && !p.remote)
@@ -41,7 +54,13 @@ export async function openComicFromNode(node) {
   releasePages()
   state.pages = node.images
   state.sourceEntry = node
-  state.title = node.name
+  let title = node.name
+  const infoJsonEntry = node.jsons.find(e => isInfoJson(e.path))
+  if (infoJsonEntry && infoJsonEntry.file) {
+    const subTitle = await loadInfoJson(infoJsonEntry.file)
+    if (subTitle) title = subTitle
+  }
+  state.title = title
   state.progressKey = node.path
   state.current = 0
   state.zoom = 1
@@ -126,6 +145,8 @@ export async function openZipEntry(zipEntry) {
     const jsons = unzipped.filter((e) => isJson(e.path))
     const danmakuJson = jsons.find((e) => isDanmakuJson(e.path))
     if (danmakuJson) zipEntry.danmakuFile = danmakuJson.file
+    const infoJson = jsons.find((e) => isInfoJson(e.path))
+    if (infoJson) zipEntry.infoJsonFile = infoJson.file
     state.loading = { label: '读取图片信息…', current: 0, total: imgs.length }
     const pages = await extractDims(imgs, (c) => {
       if (seq === openSeq) state.loading.current = c
@@ -138,7 +159,12 @@ export async function openZipEntry(zipEntry) {
   state.pages = zipEntry.pages
   state.sourceEntry = zipEntry
   const base = zipEntry.path.split('/').pop()
-  state.title = base.slice(0, base.lastIndexOf('.')) || base
+  let title = base.slice(0, base.lastIndexOf('.')) || base
+  if (zipEntry.infoJsonFile) {
+    const subTitle = await loadInfoJson(zipEntry.infoJsonFile)
+    if (subTitle) title = subTitle
+  }
+  state.title = title
   state.progressKey = zipEntry.path
   state.current = 0
   state.zoom = 1
@@ -258,7 +284,13 @@ async function handleEntries(entries, kind) {
 
   releasePages()
   state.pages = pages
-  state.title = titleFrom(titleEntries, kind)
+  let title = titleFrom(titleEntries, kind)
+  const infoJson = allJsons.find((e) => isInfoJson(e.path))
+  if (infoJson && infoJson.file) {
+    const subTitle = await loadInfoJson(infoJson.file)
+    if (subTitle) title = subTitle
+  }
+  state.title = title
   state.progressKey = state.title
   state.current = 0
   state.zoom = 1

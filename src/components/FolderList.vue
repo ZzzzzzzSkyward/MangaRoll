@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { state } from '../store'
+import { settings } from '../lib/settings'
 import { openFolderNode, openSelfComic, openZipEntry } from '../lib/importManager'
 import { naturalCompare, folderNameCompare } from '../lib/importer'
 
@@ -16,11 +17,11 @@ const sortedZips = computed( () =>
 const searchQuery = ref( '' )
 
 function setSort ( key ) {
-  if ( state.flSortKey === key ) {
-    state.flSortAsc = !state.flSortAsc
+  if ( settings.flSortKey === key ) {
+    settings.flSortAsc = !settings.flSortAsc
   } else {
-    state.flSortKey = key
-    state.flSortAsc = true
+    settings.flSortKey = key
+    settings.flSortAsc = true
   }
 }
 
@@ -57,7 +58,7 @@ function zipName ( z ) {
   return parts[ parts.length - 1 ] || z.path
 }
 
-const sortArrow = ( key ) => state.flSortKey === key ? ( state.flSortAsc ? ' ▲' : ' ▼' ) : ''
+const sortArrow = ( key ) => settings.flSortKey === key ? ( settings.flSortAsc ? ' ▲' : ' ▼' ) : ''
 
 const allListItems = computed( () => {
   const items = []
@@ -70,8 +71,8 @@ const allListItems = computed( () => {
   for ( const z of filteredZips.value ) {
     items.push( { kind: 'zip', ref: z, name: zipName( z ), type: '压缩文件', count: -1, path: z.path } )
   }
-  const k = state.flSortKey
-  const dir = state.flSortAsc ? 1 : -1
+  const k = settings.flSortKey
+  const dir = settings.flSortAsc ? 1 : -1
   items.sort( ( a, b ) => {
     if ( k === 'name' ) return naturalCompare( a.name, b.name ) * dir
     if ( k === 'type' ) return a.type.localeCompare( b.type, 'zh' ) * dir || naturalCompare( a.name, b.name ) * dir
@@ -154,9 +155,9 @@ onBeforeUnmount( () => {
           <span v-else class="fl-crumb-current" :title="c.node.path">{{ c.node.name }}</span>
         </template>
       </nav>
-      <button class="fl-view-toggle" :title="state.flViewMode === 'grid' ? '切换为列表视图' : '切换为网格视图'"
-        @click="state.flViewMode = state.flViewMode === 'grid' ? 'list' : 'grid'">
-        <svg v-if="state.flViewMode === 'grid'" width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <button class="fl-view-toggle" :title="settings.flViewMode === 'grid' ? '切换为列表视图' : '切换为网格视图'"
+        @click="settings.flViewMode = settings.flViewMode === 'grid' ? 'list' : 'grid'">
+        <svg v-if="settings.flViewMode === 'grid'" width="16" height="16" viewBox="0 0 16 16" fill="none">
           <rect x="1" y="1" width="6" height="6" rx="1" stroke="currentColor" stroke-width="1.2" />
           <rect x="9" y="1" width="6" height="6" rx="1" stroke="currentColor" stroke-width="1.2" />
           <rect x="1" y="9" width="6" height="6" rx="1" stroke="currentColor" stroke-width="1.2" />
@@ -171,7 +172,7 @@ onBeforeUnmount( () => {
       <input v-model="searchQuery" class="fl-search" type="text" placeholder="搜索…" spellcheck="false" />
     </div>
     <div v-if="showSelfCard || filteredFolders.length || filteredZips.length">
-      <div v-if="state.flViewMode === 'grid'" class="fl-grid">
+      <div v-if="settings.flViewMode === 'grid'" class="fl-grid">
         <div v-if="showSelfCard" class="fl-card" role="button" tabindex="0" @click="openSelfComic()"
           @keydown.enter="openSelfComic()">
           <div class="fl-cover">

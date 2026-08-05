@@ -18,6 +18,9 @@ export const ACTION_DEFS = {
   cycleMode: '切换阅读模式',
   toggleToolbar: '收起/展开工具栏',
   toggleOCR: 'OCR 开关',
+  backToList: '返回目录',
+  prevChapter: '上一话',
+  nextChapter: '下一话',
 }
 
 export const ACTION_NAMES = Object.keys(ACTION_DEFS)

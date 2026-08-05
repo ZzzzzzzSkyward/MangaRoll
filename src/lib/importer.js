@@ -3,7 +3,7 @@ import { naturalCompare, isImage, isJson, isZip, baseNameOf } from './fileUtils'
 import { walkDirHandle, walkItems } from './fileWalker'
 import { extractDims, extractDimsInto } from './imageProcessor'
 
-export { naturalCompare, isImage, isJson, isZip, isDanmakuJson, extOf, IMAGE_EXTS, folderNameCompare, baseNameOf } from './fileUtils'
+export { naturalCompare, isImage, isJson, isZip, isDanmakuJson, isInfoJson, extOf, IMAGE_EXTS, folderNameCompare, baseNameOf } from './fileUtils'
 export { walkDirHandle, walkItems } from './fileWalker'
 export { extractDims, extractDimsInto } from './imageProcessor'
 

@@ -5,6 +5,7 @@ import { state, setZoom, setZoomMode, toggleDanmaku, toggleCrop, toggleOcr, cycl
 import { MODE_RIGHT_TO_LEFT, isHorizontalMode } from '../lib/modes'
 import { serializeKey, resolveAction } from '../lib/keybindings'
 import { ui, toggleToolbar } from '../lib/uiState'
+import { backToList, navChapter } from '../lib/importManager'
 
 const strip = ref(null)
 
@@ -46,6 +47,9 @@ const ACTIONS = {
   cycleMode: () => cycleMode(),
   toggleToolbar: () => toggleToolbar(),
   toggleOCR: () => toggleOcr(),
+  backToList: () => backToList(),
+  prevChapter: () => navChapter(-1),
+  nextChapter: () => navChapter(1),
 }
 
 function onKey(e) {

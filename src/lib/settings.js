@@ -16,12 +16,15 @@ const DEFAULT_ACTIONS = {
   toggleFullscreen: ['F'],
   zoomIn: ['='],
   zoomOut: ['-'],
-  fitWidth: [],
-  fitHeight: [],
-  toggleCrop: [],
-  cycleMode: [],
-  toggleToolbar: [],
-  toggleOCR: [],
+  fitWidth: ['W'],
+  fitHeight: ['H'],
+  toggleCrop: ['C'],
+  cycleMode: ['M'],
+  toggleToolbar: ['T'],
+  toggleOCR: ['O'],
+  backToList: ['Backspace'],
+  prevChapter: ['['],
+  nextChapter: [']'],
 }
 
 const defaults = {
@@ -42,6 +45,9 @@ const defaults = {
   imageLoadMode: 'lazy', // 图片加载模式：'lazy' 懒加载（仅加载视口附近）| 'preload' 预加载（顺序加载全部）
   prefetchChapter: false, // 预读模式：开启后自动预读下一话的图片
   keybindings: null, // null 表示使用默认 DEFAULT_KEYS，否则 { action: [按键串] }
+  flViewMode: 'grid', // 文件列表视图模式：'grid' 网格 | 'list' 列表
+  flSortKey: 'name', // 文件列表排序字段
+  flSortAsc: true, // 文件列表排序方向
 }
 
 export const settings = reactive({ ...defaults })

@@ -20,6 +20,10 @@ export function isDanmakuJson(name) {
   return isJson(name) && /danmaku|弹幕|字幕/i.test(name)
 }
 
+export function isInfoJson(name) {
+  return isJson(name) && /(^|\/)info\.json$/i.test(name)
+}
+
 export function isZip(name) {
   return extOf(name) === 'zip'
 }

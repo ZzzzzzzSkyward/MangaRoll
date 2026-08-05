@@ -26,9 +26,6 @@ export const state = reactive({
   dir: null,
   sourceEntry: null,
   singleZoom: null,
-  flViewMode: 'grid',
-  flSortKey: 'name',
-  flSortAsc: true,
 })
 
 export const dragging = ref(false)
