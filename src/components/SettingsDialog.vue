@@ -111,7 +111,15 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onCaptureKey, true))
           </div>
           <div class="sp-row">
             <label>强度</label>
-            <input type="range" min="1" max="5" step="1" v-model.number="settings.moireRadius" :disabled="!settings.moireEnabled" />
+            <input
+              type="range"
+              min="1"
+              max="5"
+              step="1"
+              v-model.number="settings.moireRadius"
+              :disabled="!settings.moireEnabled"
+              :style="{ '--fill': ((settings.moireRadius - 1) / 4) * 100 + '%' }"
+            />
             <span class="sp-num">{{ settings.moireRadius }}</span>
             <span class="sp-hint">值越大去网纹越彻底</span>
           </div>
@@ -185,12 +193,26 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onCaptureKey, true))
           </div>
           <div class="sp-row">
             <label>透明度</label>
-            <input type="range" min="10" max="100" step="5" v-model.number="settings.ocrTextOpacity" />
+            <input
+              type="range"
+              min="10"
+              max="100"
+              step="5"
+              v-model.number="settings.ocrTextOpacity"
+              :style="{ '--fill': ((settings.ocrTextOpacity - 10) / 90) * 100 + '%' }"
+            />
             <span class="sp-num">{{ settings.ocrTextOpacity }}%</span>
           </div>
           <div class="sp-row">
             <label>字号</label>
-            <input type="range" min="8" max="32" step="1" v-model.number="settings.ocrFontSize" />
+            <input
+              type="range"
+              min="8"
+              max="32"
+              step="1"
+              v-model.number="settings.ocrFontSize"
+              :style="{ '--fill': ((settings.ocrFontSize - 8) / 24) * 100 + '%' }"
+            />
             <span class="sp-num">{{ settings.ocrFontSize }}px</span>
           </div>
           <div class="sp-row">
@@ -220,33 +242,192 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onCaptureKey, true))
 </template>
 
 <style scoped>
-.settings-mask { position: fixed; inset: 0; z-index: 90; background: rgba(8, 10, 14, 0.6); display: flex; align-items: center; justify-content: center; }
-.settings-panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; width: 440px; max-width: calc(100vw - 32px); max-height: 82vh; overflow: auto; color: var(--text); box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5); }
-.settings-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid var(--border); font-weight: 700; }
-.sp-close { background: none; border: none; color: var(--text-dim); font-size: 20px; cursor: pointer; line-height: 1; }
-.sp-tabs { display: flex; border-bottom: 1px solid var(--border); }
-.sp-tabs button { flex: 1; padding: 8px 0; background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 14px; border-bottom: 2px solid transparent; }
-.sp-tabs button.on { color: var(--accent); border-bottom-color: var(--accent); }
-.sp-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
-.sp-row { display: flex; align-items: center; gap: 10px; font-size: 13px; }
-.sp-row select, .sp-row input[type='text'] { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; flex: 1; min-width: 0; }
-.sp-row input[type='color'] { width: 46px; height: 30px; padding: 2px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
-.sp-row input[type='range'] { flex: 1; }
-.sp-num { min-width: 24px; text-align: center; color: var(--text-dim); }
-.sp-switch { display: flex; align-items: center; gap: 8px; cursor: pointer; }
-.sp-hint { font-size: 12px; color: var(--text-dim); margin: 0; }
-.ocr-status { font-size: 12px; padding: 1px 8px; border-radius: 4px; background: var(--bg); border: 1px solid var(--border); }
-.ocr-status-ok { color: #67c23a; }
-.ocr-status-retrying { color: #e6a23c; }
-.ocr-status-down { color: #f56c6c; }
-.sp-warn { font-size: 12px; color: #e6a23c; margin: 0; }
-.sp-actions { display: flex; gap: 8px; }
-.sp-actions button { background: var(--btn); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px 14px; cursor: pointer; }
-.sp-actions button:hover { background: var(--btn-hover); }
-.key-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.key-table td { padding: 6px 4px; border-bottom: 1px solid var(--border); }
-.key-label { width: 130px; }
-.key-btn-cell { width: 60px; text-align: right; }
-.capture-tip { color: var(--accent); }
-.key-table button { background: var(--btn); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 3px 10px; cursor: pointer; }
+.settings-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(15, 23, 42, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: mask-in 0.18s ease;
+}
+.settings-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l);
+  width: 460px;
+  max-width: calc(100vw - 32px);
+  max-height: 82vh;
+  overflow: auto;
+  color: var(--text);
+  box-shadow: var(--shadow-3);
+  animation: dialog-in 0.2s var(--ease);
+}
+.settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  font-size: 15px;
+  font-weight: 600;
+}
+.sp-close {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 18px;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  line-height: 1;
+  transition: background 0.12s var(--ease), color 0.12s var(--ease);
+}
+.sp-close:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.sp-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+}
+.sp-tabs button {
+  flex: 1;
+  padding: 9px 0 7px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 14px;
+  transition: color 0.12s var(--ease), background 0.12s var(--ease), border-color 0.12s var(--ease);
+}
+.sp-tabs button:hover {
+  color: var(--text);
+  background: var(--hover);
+}
+.sp-tabs button.on {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+  background: none;
+}
+.sp-body {
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.sp-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+.sp-row select,
+.sp-row input[type='text'] {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 26px 6px 8px;
+}
+.sp-row input[type='color'] {
+  width: 44px;
+  height: 30px;
+  padding: 3px;
+}
+.sp-row input[type='range'] {
+  flex: 1;
+}
+.sp-num {
+  min-width: 24px;
+  text-align: center;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.sp-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.sp-hint {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: 0;
+}
+.ocr-status {
+  font-size: 12px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--hover);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.ocr-status-ok {
+  color: var(--ok);
+  border-color: rgba(46, 158, 87, 0.35);
+  background: rgba(46, 158, 87, 0.08);
+}
+.ocr-status-retrying {
+  color: var(--warn);
+  border-color: rgba(201, 123, 24, 0.35);
+  background: rgba(201, 123, 24, 0.08);
+}
+.ocr-status-down {
+  color: var(--danger);
+  border-color: rgba(232, 17, 35, 0.35);
+  background: rgba(232, 17, 35, 0.06);
+}
+.sp-warn {
+  font-size: 12px;
+  color: var(--warn);
+  margin: 0;
+  line-height: 1.6;
+}
+.sp-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.sp-actions button,
+.key-table button {
+  background: #fff;
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-s);
+  padding: 6px 16px;
+  cursor: pointer;
+  transition: background 0.12s var(--ease), border-color 0.12s var(--ease), color 0.12s var(--ease);
+}
+.sp-actions button:hover,
+.key-table button:hover {
+  background: var(--hover);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.key-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.key-table td {
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--border);
+}
+.key-table tr:hover td {
+  background: #fafbfc;
+}
+.key-label {
+  width: 130px;
+}
+.key-btn-cell {
+  width: 70px;
+  text-align: right;
+}
+.capture-tip {
+  color: var(--accent);
+}
 </style>

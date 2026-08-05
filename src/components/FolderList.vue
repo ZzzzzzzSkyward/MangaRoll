@@ -1,6 +1,44 @@
 <script setup>
-import { watch, onBeforeUnmount } from 'vue'
-import { state, openFolderNode, openSelfComic, goUp } from '../store'
+import { computed, watch, onBeforeUnmount } from 'vue'
+import { state, openFolderNode, openSelfComic } from '../store'
+
+// 名称中含数字时提取每个连续数字，得到数字数组（如 '第1话第2节' → [1, 2]）；
+// 不含数字返回 null。
+function digitGroups(name) {
+  const g = (name.match(/\d+/g) || []).map(Number)
+  return g.length ? g : null
+}
+
+// 智能文件夹名称排序：两侧都含数字时，按数字数组逐位比较
+//（arr[0] → arr[arr.length-1]），从小到大；其余情况回退自然字符串比较。
+function folderNameCompare(a, b) {
+  const na = digitGroups(a.name)
+  const nb = digitGroups(b.name)
+  if (na && nb) {
+    const len = Math.min(na.length, nb.length)
+    for (let i = 0; i < len; i++) {
+      if (na[i] !== nb[i]) return na[i] - nb[i]
+    }
+    if (na.length !== nb.length) return na.length - nb.length
+  }
+  return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+}
+
+const sortedFolders = computed(() =>
+  [...(state.dir?.folders || [])].sort(folderNameCompare)
+)
+
+// 当前目录的层级链（根 → 当前），用于面包屑导航
+const crumbs = computed(() => {
+  const chain = []
+  let node = state.dir
+  while (node) {
+    chain.push(node)
+    node = node.parent
+  }
+  chain.reverse()
+  return chain.map((n, i) => ({ node: n, current: i === chain.length - 1 }))
+})
 
 // 封面 blob URL 按页面对象缓存；切换目录 / 卸载时统一释放
 const coverUrls = new Map()
@@ -36,8 +74,18 @@ onBeforeUnmount(() => {
 <template>
   <div class="folder-list">
     <div class="fl-header">
-      <button v-if="state.dir?.parent" class="fl-back" @click="goUp()">← 上一级</button>
-      <span class="fl-title" :title="state.dir?.name">{{ state.dir?.name }}</span>
+      <nav class="fl-crumbs">
+        <template v-for="(c, i) in crumbs" :key="c.node.path">
+          <span v-if="i > 0" class="fl-crumb-sep">/</span>
+          <button
+            v-if="!c.current"
+            class="fl-crumb"
+            :title="c.node.path"
+            @click="openFolderNode(c.node)"
+          >{{ c.node.name }}</button>
+          <span v-else class="fl-crumb-current" :title="c.node.path">{{ c.node.name }}</span>
+        </template>
+      </nav>
     </div>
     <div v-if="state.dir?.folders.length || state.dir?.images.length" class="fl-grid">
       <div
@@ -63,7 +111,7 @@ onBeforeUnmount(() => {
         <div class="fl-count">{{ state.dir.images.length }} 张</div>
       </div>
       <div
-        v-for="node in state.dir.folders"
+        v-for="node in sortedFolders"
         :key="node.path"
         class="fl-card"
         role="button"
@@ -97,23 +145,45 @@ onBeforeUnmount(() => {
   gap: 10px;
   margin-bottom: 18px;
 }
-.fl-back {
-  background: var(--btn);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 6px 14px;
-  font-size: 13px;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-.fl-back:hover {
-  background: var(--btn-hover);
-  border-color: var(--accent);
-}
-.fl-title {
+.fl-crumbs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
   font-size: 18px;
   font-weight: 600;
+  line-height: 1.3;
+}
+.fl-crumb {
+  background: none;
+  border: none;
+  padding: 2px 6px;
+  margin: -2px -6px;
+  border-radius: var(--radius-s);
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  color: var(--text-dim);
+  cursor: pointer;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background 0.12s var(--ease), color 0.12s var(--ease);
+}
+.fl-crumb:hover {
+  background: var(--hover);
+  color: var(--accent);
+}
+.fl-crumb-sep {
+  color: var(--text-dim);
+  opacity: 0.55;
+  user-select: none;
+}
+.fl-crumb-current {
+  color: var(--text);
+  max-width: 260px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -125,22 +195,23 @@ onBeforeUnmount(() => {
 }
 .fl-card {
   cursor: pointer;
-  border-radius: 10px;
+  border-radius: var(--radius-m);
   overflow: hidden;
   background: var(--panel);
   border: 1px solid var(--border);
-  transition: border-color 0.15s, transform 0.15s;
+  box-shadow: var(--shadow-1);
+  transition: transform 0.18s var(--ease), box-shadow 0.18s var(--ease), border-color 0.18s var(--ease);
 }
 .fl-card:hover,
 .fl-card:focus-visible {
-  border-color: var(--accent);
-  transform: translateY(-2px);
+  border-color: rgba(0, 120, 212, 0.55);
+  box-shadow: var(--shadow-2);
   outline: none;
 }
 .fl-cover {
   position: relative;
   aspect-ratio: 3 / 4;
-  background: #0e1118;
+  background: #e9ecf0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -153,8 +224,8 @@ onBeforeUnmount(() => {
   z-index: 1;
   font-size: 11px;
   color: #fff;
-  background: rgba(79, 140, 255, 0.92);
-  border-radius: 4px;
+  background: var(--accent);
+  border-radius: var(--radius-s);
   padding: 2px 6px;
   pointer-events: none;
 }
@@ -173,6 +244,7 @@ onBeforeUnmount(() => {
   padding: 8px 10px 2px;
   font-size: 13px;
   font-weight: 600;
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -197,8 +269,12 @@ onBeforeUnmount(() => {
     grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
     gap: 12px;
   }
-  .fl-title {
+  .fl-crumbs {
     font-size: 16px;
+  }
+  .fl-crumb,
+  .fl-crumb-current {
+    max-width: 130px;
   }
 }
 </style>

@@ -38,9 +38,10 @@ const picker = ref(null)
   color: var(--text-dim);
   text-align: center;
   padding: 24px;
+  animation: rise-in 0.35s var(--ease);
 }
 .dropzone.overlay {
-  background: rgba(10, 12, 16, 0.78);
+  background: rgba(255, 255, 255, 0.8);
   border: 2px dashed var(--accent);
   z-index: 50;
 }
@@ -66,17 +67,29 @@ p {
   margin-top: 8px;
 }
 .dz-buttons button {
-  background: var(--btn);
+  background: #fff;
   color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-s);
   padding: 8px 18px;
   font-size: 14px;
   cursor: pointer;
+  box-shadow: var(--shadow-1);
+  transition: background 0.12s var(--ease), border-color 0.12s var(--ease), box-shadow 0.12s var(--ease);
 }
 .dz-buttons button:hover {
-  background: var(--btn-hover);
+  background: var(--hover);
   border-color: var(--accent);
+  box-shadow: var(--shadow-2);
+}
+.dz-buttons button:first-child {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.dz-buttons button:first-child:hover {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
 }
 
 @media (max-width: 640px) {

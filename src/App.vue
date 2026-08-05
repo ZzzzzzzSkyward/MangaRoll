@@ -92,17 +92,16 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   gap: 12px;
-  background: rgba(10, 12, 16, 0.8);
-  backdrop-filter: blur(2px);
+  background: rgba(242, 243, 245, 0.85);
 }
 .load-label {
   font-size: 15px;
   color: var(--text);
 }
 .spinner {
-  width: 36px;
-  height: 36px;
-  border: 3px solid var(--border);
+  width: 34px;
+  height: 34px;
+  border: 3px solid #d9dde3;
   border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
@@ -114,15 +113,16 @@ onBeforeUnmount(() => {
 }
 .load-bar {
   width: 260px;
-  height: 6px;
-  border-radius: 3px;
-  background: var(--panel);
+  height: 4px;
+  border-radius: 2px;
+  background: #e4e7eb;
   overflow: hidden;
 }
 .load-fill {
   height: 100%;
   background: var(--accent);
-  transition: width 0.2s;
+  border-radius: 2px;
+  transition: width 0.2s var(--ease);
 }
 .load-num {
   font-size: 12px;
@@ -133,14 +133,15 @@ onBeforeUnmount(() => {
   bottom: 28px;
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(20, 24, 32, 0.92);
+  background: var(--panel);
   border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
   color: var(--text);
-  padding: 8px 18px;
-  border-radius: 8px;
+  padding: 9px 18px;
+  border-radius: var(--radius-m);
   font-size: 14px;
   z-index: 100;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-3);
 }
 .toast-enter-active,
 .toast-leave-active {

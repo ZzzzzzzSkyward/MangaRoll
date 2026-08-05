@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, nextTick } from 'vue'
 import FilePicker from './FilePicker.vue'
 import SettingsDialog from './SettingsDialog.vue'
 import RemoteDialog from './RemoteDialog.vue'
@@ -38,14 +38,40 @@ function toggleCollapse() {
     resetFadeTimer()
   }
 }
+
+const titleRef = ref(null)
+const tooltipRef = ref(null)
+const showTip = ref(false)
+const tipPos = ref(null)
+
+async function onTitleHover() {
+  showTip.value = false
+  tipPos.value = null
+  const el = titleRef.value
+  if (!el || el.scrollWidth <= el.clientWidth) return
+  showTip.value = true
+  await nextTick()
+  const wrap = titleRef.value
+  const tip = tooltipRef.value
+  if (!wrap || !tip) return
+  const r = wrap.getBoundingClientRect()
+  const top = r.top - tip.offsetHeight - 10 >= 2 ? r.top - tip.offsetHeight - 10 : r.bottom + 10
+  tipPos.value = { top: `${top}px`, left: `${r.left}px` }
+}
+function hideTitleTip() {
+  showTip.value = false
+  tipPos.value = null
+}
 </script>
 
 <template>
   <header class="toolbar-wrap" :class="{ collapsed }">
     <header class="toolbar">
       <div class="tb-row-1">
-        <span class="app-name">漫画阅读器</span>
-        <span v-if="state.pages.length" class="tb-title" :title="state.title">{{ state.title }}</span>
+        <div v-if="state.pages.length" class="tb-title-wrap" @mouseenter="onTitleHover" @mouseleave="hideTitleTip">
+          <span ref="titleRef" class="tb-title">{{ state.title }}</span>
+          <div v-if="showTip" ref="tooltipRef" class="tb-title-tooltip" :style="tipPos">{{ state.title }}</div>
+        </div>
         <template v-if="state.pages.length">
           <input
             v-model.number="jumpVal"
@@ -94,7 +120,15 @@ function toggleCollapse() {
         <button :class="{ on: state.danmakuOn }" :title="danmakuTip" @click="toggleDanmaku">
           弹幕 {{ state.danmakuOn ? '开' : '关' }}
         </button>
-        <input v-model.number="state.danmakuOpacity" class="dm-opacity" type="range" min="0.15" max="1" step="0.05" />
+        <input
+          v-model.number="state.danmakuOpacity"
+          class="dm-opacity"
+          type="range"
+          min="0.15"
+          max="1"
+          step="0.05"
+          :style="{ '--fill': ((state.danmakuOpacity - 0.15) / 0.85) * 100 + '%' }"
+        />
         <select v-model="state.danmakuSpeed" title="弹幕速度">
           <option :value="0.5">0.5×</option>
           <option :value="0.75">0.75×</option>
@@ -149,8 +183,9 @@ function toggleCollapse() {
   padding: 8px 12px;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
   flex-wrap: wrap;
-  transition: transform 0.25s ease;
+  transition: transform 0.25s var(--ease);
   pointer-events: auto;
 }
 .tb-row-1 {
@@ -166,33 +201,51 @@ function toggleCollapse() {
   flex-wrap: wrap;
   width: 100%;
 }
-.app-name {
-  font-weight: 700;
-  color: var(--accent);
-  white-space: nowrap;
+.tb-title-wrap {
+  flex: 1;
+  min-width: 0;
 }
 .tb-title {
-  max-width: 220px;
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--text-dim);
+  color: var(--text);
   font-size: 13px;
-  flex: 1;
-  min-width: 0;
+  font-weight: 600;
+}
+.tb-title-tooltip {
+  position: fixed;
+  z-index: 60;
+  max-width: 80vw;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  padding: 6px 12px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text);
+  word-break: break-all;
+  box-shadow: var(--shadow-2);
+  pointer-events: none;
 }
 .toggle-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--btn);
+  background: var(--hover);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-s);
   padding: 4px;
   cursor: pointer;
   color: var(--text);
   margin-left: auto;
   flex-shrink: 0;
+  transition: background 0.12s var(--ease), border-color 0.12s var(--ease);
+}
+.toggle-btn:hover {
+  background: #e7ebf0;
+  border-color: var(--border-strong);
 }
 .toggle-btn svg {
   width: 16px;
@@ -200,55 +253,62 @@ function toggleCollapse() {
 }
 .floating-toggle {
   position: fixed;
-  top: 4px;
-  right: 8px;
+  top: 8px;
+  right: 10px;
   z-index: 11;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--panel);
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(8px);
   border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 6px 8px;
+  border-radius: var(--radius-m);
+  padding: 6px 9px;
   cursor: pointer;
   color: var(--text);
   pointer-events: auto;
-  opacity: 0.6;
-  transition: opacity 0.5s ease;
+  opacity: 0.7;
+  box-shadow: var(--shadow-1);
+  transition: opacity 0.5s ease, background 0.12s var(--ease), box-shadow 0.12s var(--ease);
 }
 .floating-toggle.faded {
   opacity: 0;
 }
 .floating-toggle:hover {
-  background: var(--btn-hover);
+  background: #fff;
   opacity: 1;
+  box-shadow: var(--shadow-2);
 }
 .floating-toggle svg {
   width: 16px;
   height: 16px;
 }
 button {
-  background: var(--btn);
+  background: transparent;
   color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-s);
   padding: 4px 10px;
   font-size: 13px;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
+  transition: background 0.12s var(--ease), color 0.12s var(--ease), border-color 0.12s var(--ease);
   white-space: nowrap;
 }
 button:hover {
-  background: var(--btn-hover);
+  background: var(--hover);
+}
+button:active {
+  background: var(--pressed);
 }
 button.on {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
+  background: var(--accent-soft);
+  border-color: rgba(0, 120, 212, 0.28);
+  color: var(--accent);
+  font-weight: 600;
 }
 .sep {
   width: 1px;
-  height: 18px;
+  height: 16px;
   background: var(--border);
   margin: 0 4px;
 }
@@ -257,13 +317,10 @@ button.on {
   text-align: center;
   font-size: 13px;
   color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
 }
 .page-jump {
   width: 70px;
-  background: var(--bg);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 6px;
   padding: 3px 6px;
   font-size: 13px;
   text-align: center;
@@ -275,15 +332,6 @@ button.on {
 }
 .dm-opacity {
   width: 60px;
-  accent-color: var(--accent);
-}
-select {
-  background: var(--btn);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 3px 4px;
-  font-size: 13px;
 }
 
 @media (max-width: 640px) {
@@ -294,12 +342,12 @@ select {
   .tb-row-1 {
     gap: 6px;
   }
+  .tb-row-2 {
+    gap: 3px;
+  }
   .tb-title {
     max-width: 80px;
     font-size: 12px;
-  }
-  .tb-row-2 {
-    gap: 3px;
   }
   button {
     padding: 6px 8px;
@@ -322,7 +370,7 @@ select {
     width: 50px;
   }
   select {
-    padding: 4px;
+    padding: 4px 26px 4px 6px;
     font-size: 12px;
   }
 }
@@ -330,9 +378,6 @@ select {
 @media (max-width: 380px) {
   .tb-title {
     display: none;
-  }
-  .app-name {
-    font-size: 14px;
   }
   button {
     padding: 6px 6px;
