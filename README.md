@@ -5,9 +5,10 @@
 ## 功能
 
 - **拖拽导入**：将文件夹或 ZIP 压缩包拖入页面即可打开其中的图片，无需上传
-  - 支持通过按钮选择文件夹（`webkitdirectory`）或 ZIP 文件
+  - 支持通过按钮选择文件夹（优先 File System Access API `showDirectoryPicker()`，不支持时降级 `webkitdirectory`）或 ZIP 文件
   - ZIP 使用 [JSZip](https://stuk.github.io/jszip/) 在浏览器内解压
   - 文件夹 / ZIP 内的弹幕 JSON 会被自动识别并加载（优先自动打开名称带 `danmaku` / `弹幕` 的 JSON 文件）
+  - **文件夹列表视图**：打开的文件夹具有层级结构（含子文件夹）时自动进入列表视图（占据漫画阅读区域），按自然顺序列举所有子文件夹；封面取子文件夹内第一张图片，若存在主名完全等于 `cover`（不含扩展名、不区分大小写）的图片则优先作为封面。目录同时包含图片与子文件夹时，图片视为本层漫画（列表首项带「本目录」标记），点击即读。点击条目：含子文件夹则下钻一层，仅含图片则直接打开为漫画（进度按目录独立记忆，目录内弹幕 JSON 自动加载）；列表内可逐级返回，阅读中可通过工具栏「返回目录」回到列表
 - **图片格式支持**
   - 位图格式：`.jpg` / `.jpeg` / `.png` / `.gif` / `.webp` / `.bmp` / `.avif` / `.ico`
   - 按文件名自然排序（`1.jpg, 2.jpg, 10.jpg`），非图片文件自动跳过
@@ -27,6 +28,7 @@
 - **弹幕系统 v2**：漫画页面上方叠加快可开关弹幕层，每张图片拥有独立弹幕池，弹幕横向滚动并循环回收，轨道无重叠、视口感知暂停（见下文格式）
 - **性能优化**
   - 虚拟渲染（Virtualization）：仅渲染视口附近 ±1.5 屏的页面节点，支持超长漫画
+  - 文件夹列表视图即时进入：封面显示无需尺寸，列表零等待；页面尺寸 / 裁边 / 超限缩小在打开对应漫画时按需解析（`extractDimsInto`，4 并发 + 进度遮罩），结果就地写回目录树，会话内重复打开秒开，不解析未阅读的漫画
   - 图片懒加载：`blob` URL 按需创建、移出视口后延迟 `revokeObjectURL` 释放
   - 导入阶段：`Image` 解码使用并发池（默认 4 并发），进度条实时反馈，不阻塞 UI
   - 滚动、缩放动画使用 `requestAnimationFrame` 驱动，弹幕由 Web Animations API（合成器线程）处理，避免主线程卡顿
@@ -77,7 +79,7 @@ comicreader/
     ├── store.js             # 响应式状态：导入、模式、缩放、弹幕、平板模式、进度记忆
     ├── style.css            # 全局样式与主题变量
     ├── lib/
-    │   ├── importer.js      # 文件夹递归遍历、ZIP 解压、图片尺寸提取、最大尺寸缩小、自然排序
+    │   ├── importer.js      # 文件夹递归遍历、ZIP 解压、图片尺寸提取、最大尺寸缩小、自然排序、文件夹树构建
     │   ├── danmakuParser.js # 通用弹幕格式解析（规范见 spec_danmaku.json）
     │   ├── modes.js         # 阅读模式常量
     │   ├── cropDetect.js    # 智能裁边：白 / 黑边检测，返回裁剪矩形
@@ -109,6 +111,7 @@ comicreader/
         ├── DropZone.vue     # 拖放提示区 / 拖放遮罩
         ├── FilePicker.vue   # 隐藏文件选择器（文件夹 / ZIP / 弹幕 JSON）
         ├── ReaderView.vue   # 阅读器容器、键盘与点击翻页（快捷键查表分发）
+        ├── FolderList.vue   # 文件夹列表视图：层级目录封面网格、下钻与返回导航
         ├── VirtualStrip.vue # 虚拟滚动核心（纵向 / 横向 / 右左复用）+ 拖拽 / 惯性 / 双指缩放 / Ctrl+滚轮单图缩放
         ├── PageSlot.vue     # 单页节点：图片懒加载、URL 生命周期、裁边、去网纹、OCR 叠加、弹幕挂载
         ├── DanmakuLayer.vue # 弹幕层 v2：独立弹幕池 + WAAPI 动画 + 自动回收
@@ -172,7 +175,8 @@ comicreader/
 | 框架 | Vue 3（Composition API + `<script setup>`）+ Vite 6 |
 | 图片加载 | `URL.createObjectURL()` 本地预览，按需创建 / 延迟释放 |
 | ZIP 解压 | JSZip（npm 依赖） |
-| 文件夹选择 | `webkitdirectory` 属性 + 拖拽 `webkitGetAsEntry()` 递归遍历 |
+| 文件夹选择 | File System Access API `showDirectoryPicker()`（不支持时降级 `webkitdirectory`）+ 拖拽 `webkitGetAsEntry()` 递归遍历 |
+| 文件夹列表 | 导入阶段按 `path` 层级聚合为目录树（`importer.buildFolderTree`），封面优先主名完全等于 `cover`（不区分大小写）的图片，点击条目下钻 / 打开漫画；页面尺寸在打开漫画时按需解析（`extractDimsInto`，结果回写目录树复用） |
 | 虚拟渲染 | 绝对定位 + 前缀和布局 + 二分查找视口区间（含右左模式的反向前缀和） |
 | 拖拽 / 惯性 | Pointer Events + `requestAnimationFrame` 惯性衰减 |
 | 双指缩放 | Touch Events 距离比映射缩放值 |

@@ -3,6 +3,7 @@ import { onMounted, onBeforeUnmount, computed } from 'vue'
 import Toolbar from './components/Toolbar.vue'
 import DropZone from './components/DropZone.vue'
 import ReaderView from './components/ReaderView.vue'
+import FolderList from './components/FolderList.vue'
 import { state, dragging, toast, importDropped } from './store'
 
 const loadPct = computed(() =>
@@ -49,7 +50,8 @@ onBeforeUnmount(() => {
 <template>
   <div class="app">
     <div class="stage">
-      <ReaderView v-if="state.status === 'ready'" />
+      <ReaderView v-if="state.status === 'ready' && state.view === 'comic'" />
+      <FolderList v-else-if="state.status === 'ready' && state.view === 'list'" />
       <DropZone v-else />
       <DropZone v-if="dragging" overlay />
       <div v-if="state.status === 'loading'" class="loading-overlay">

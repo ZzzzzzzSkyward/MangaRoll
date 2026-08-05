@@ -3,7 +3,7 @@ import { ref, computed } from 'vue'
 import FilePicker from './FilePicker.vue'
 import SettingsDialog from './SettingsDialog.vue'
 import RemoteDialog from './RemoteDialog.vue'
-import { state, setMode, setZoom, setZoomMode, jumpTo, toggleDanmaku, toggleTabletMode, toggleCrop } from '../store'
+import { state, setMode, setZoom, setZoomMode, jumpTo, toggleDanmaku, toggleTabletMode, toggleCrop, backToList } from '../store'
 import { MODE_VERTICAL, MODE_HORIZONTAL, MODE_RIGHT_TO_LEFT, isHorizontalMode } from '../lib/modes'
 import { settings } from '../lib/settings'
 import { ui, toggleToolbar, openSettings, openRemote } from '../lib/uiState'
@@ -67,6 +67,7 @@ function toggleCollapse() {
       </div>
 
       <div class="tb-row-2">
+        <button v-if="state.tree && state.view === 'comic'" title="返回目录列表" @click="backToList()">返回目录</button>
         <button title="打开文件夹" @click="picker.pickFolder()">文件夹</button>
         <button title="打开 ZIP" @click="picker.pickZip()">ZIP</button>
         <button title="加载远程漫画" @click="openRemote()">远程</button>
