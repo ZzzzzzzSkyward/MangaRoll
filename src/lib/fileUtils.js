@@ -1,4 +1,4 @@
-export const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'avif', 'ico'])
+export const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'avif', 'ico', 'jxl'])
 const JSON_EXTS = new Set(['json'])
 
 export const naturalCompare = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' }).compare
