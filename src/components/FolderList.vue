@@ -1,31 +1,15 @@
 <script setup>
 import { computed, watch, onBeforeUnmount } from 'vue'
-import { state, openFolderNode, openSelfComic } from '../store'
-
-// 名称中含数字时提取每个连续数字，得到数字数组（如 '第1话第2节' → [1, 2]）；
-// 不含数字返回 null。
-function digitGroups(name) {
-  const g = (name.match(/\d+/g) || []).map(Number)
-  return g.length ? g : null
-}
-
-// 智能文件夹名称排序：两侧都含数字时，按数字数组逐位比较
-//（arr[0] → arr[arr.length-1]），从小到大；其余情况回退自然字符串比较。
-function folderNameCompare(a, b) {
-  const na = digitGroups(a.name)
-  const nb = digitGroups(b.name)
-  if (na && nb) {
-    const len = Math.min(na.length, nb.length)
-    for (let i = 0; i < len; i++) {
-      if (na[i] !== nb[i]) return na[i] - nb[i]
-    }
-    if (na.length !== nb.length) return na.length - nb.length
-  }
-  return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
-}
+import { state, openFolderNode, openSelfComic, openZipEntry, chapterNav, navChapter, zipName } from '../store'
+import { naturalCompare, folderNameCompare } from '../lib/importer'
 
 const sortedFolders = computed(() =>
-  [...(state.dir?.folders || [])].sort(folderNameCompare)
+  [...(state.dir?.folders || [])].sort((a, b) => folderNameCompare(a.name, b.name))
+)
+
+// 压缩包条目（{ file, path }），按路径自然排序
+const sortedZips = computed(() =>
+  [...(state.dir?.zips || [])].sort((a, b) => naturalCompare(a.path, b.path))
 )
 
 // 当前目录的层级链（根 → 当前），用于面包屑导航
@@ -86,8 +70,12 @@ onBeforeUnmount(() => {
           <span v-else class="fl-crumb-current" :title="c.node.path">{{ c.node.name }}</span>
         </template>
       </nav>
+      <template v-if="chapterNav">
+        <button class="fl-ch-nav" :disabled="!chapterNav.prev" @click="navChapter(-1)">上一话</button>
+        <button class="fl-ch-nav" :disabled="!chapterNav.next" @click="navChapter(1)">下一话</button>
+      </template>
     </div>
-    <div v-if="state.dir?.folders.length || state.dir?.images.length" class="fl-grid">
+    <div v-if="state.dir?.folders.length || state.dir?.images.length || state.dir?.zips.length" class="fl-grid">
       <div
         v-if="state.dir.images.length"
         class="fl-card"
@@ -105,7 +93,6 @@ onBeforeUnmount(() => {
             loading="lazy"
             :alt="state.dir.name"
           />
-          <div v-else class="fl-placeholder">无封面</div>
         </div>
         <div class="fl-name" :title="state.dir.name">{{ state.dir.name }}</div>
         <div class="fl-count">{{ state.dir.images.length }} 张</div>
@@ -121,10 +108,25 @@ onBeforeUnmount(() => {
       >
         <div class="fl-cover">
           <img v-if="coverUrl(node)" class="fl-img" :src="coverUrl(node)" loading="lazy" :alt="node.name" />
-          <div v-else class="fl-placeholder">无封面</div>
         </div>
         <div class="fl-name" :title="node.name">{{ node.name }}</div>
         <div class="fl-count">{{ nodeCount(node) }} 张</div>
+      </div>
+      <div
+        v-for="z in sortedZips"
+        :key="z.path"
+        class="fl-card"
+        role="button"
+        tabindex="0"
+        @click="openZipEntry(z)"
+        @keydown.enter="openZipEntry(z)"
+      >
+        <div class="fl-cover">
+          <span class="fl-badge fl-badge-zip">ZIP</span>
+          <div class="fl-placeholder">压缩包</div>
+        </div>
+        <div class="fl-name" :title="z.path">{{ zipName(z) }}</div>
+        <div class="fl-count">压缩文件</div>
       </div>
     </div>
     <div v-else class="fl-empty">此文件夹为空</div>
@@ -181,6 +183,27 @@ onBeforeUnmount(() => {
   opacity: 0.55;
   user-select: none;
 }
+.fl-ch-nav {
+  margin-left: auto;
+  flex-shrink: 0;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  padding: 4px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--text);
+  white-space: nowrap;
+  transition: background 0.12s var(--ease), border-color 0.12s var(--ease);
+}
+.fl-ch-nav:hover:not(:disabled) {
+  background: var(--hover);
+  border-color: var(--border-strong);
+}
+.fl-ch-nav:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
 .fl-crumb-current {
   color: var(--text);
   max-width: 260px;
@@ -228,6 +251,9 @@ onBeforeUnmount(() => {
   border-radius: var(--radius-s);
   padding: 2px 6px;
   pointer-events: none;
+}
+.fl-badge-zip {
+  background: #b26a00;
 }
 .fl-img {
   width: 100%;

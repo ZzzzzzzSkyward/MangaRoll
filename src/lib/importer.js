@@ -6,6 +6,28 @@ const JSON_EXTS = new Set(['json'])
 
 export const naturalCompare = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' }).compare
 
+// 名称中含数字时提取每个连续数字，得到数字数组（如 '第1话第2节' → [1, 2]）；
+// 不含数字返回 null。
+function digitGroups(name) {
+  const g = (name.match(/\d+/g) || []).map(Number)
+  return g.length ? g : null
+}
+
+// 智能文件夹名称排序：两侧都含数字时，按数字数组逐位比较
+//（arr[0] → arr[arr.length-1]），从小到大；其余情况回退自然字符串比较。
+export function folderNameCompare(a, b) {
+  const na = digitGroups(a)
+  const nb = digitGroups(b)
+  if (na && nb) {
+    const len = Math.min(na.length, nb.length)
+    for (let i = 0; i < len; i++) {
+      if (na[i] !== nb[i]) return na[i] - nb[i]
+    }
+    if (na.length !== nb.length) return na.length - nb.length
+  }
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+}
+
 export function extOf(name) {
   const i = name.lastIndexOf('.')
   return i >= 0 ? name.slice(i + 1).toLowerCase() : ''
@@ -232,15 +254,16 @@ function baseNameOf(name) {
 
 // 将平铺条目（path 形如 'root/sub/img.jpg'）按目录层级聚合为树。
 // pages 为已完成尺寸提取的页面数组（与 imgs 同序、损坏项已过滤），按 path 与条目关联。
-// 每个目录节点：{ name, path, parent, folders, images, jsons, cover }
+// 每个目录节点：{ name, path, parent, folders, images, zips, jsons, cover }
 //  - images：该目录内直接图片的页面对象（按文件名自然排序，非图片自动跳过）
+//  - zips：  该目录内直接压缩文件条目（{ file, path }，点击时解压为漫画）
 //  - jsons： 该目录内 JSON 文件条目（弹幕 JSON 打开漫画时按需加载）
 //  - cover： 封面页面 —— 主名完全等于 cover（不区分大小写）的图片优先，否则取第一张
-// 返回根节点；根节点 folders 非空表示存在子文件夹（调用方据此进入列表视图）。
+// 返回根节点；根节点 folders / zips 非空表示需要进入列表视图。
 export function buildFolderTree(entries, pages) {
   const pageByPath = new Map(pages.map((p) => [p.path, p]))
   const sorted = [...entries].sort((a, b) => naturalCompare(a.path, b.path))
-  const root = { name: '', path: '', parent: null, folders: [], images: [], jsons: [], cover: null }
+  const root = { name: '', path: '', parent: null, folders: [], images: [], zips: [], jsons: [], cover: null }
   for (const e of sorted) {
     const segs = e.path.split('/')
     let node = root
@@ -254,6 +277,7 @@ export function buildFolderTree(entries, pages) {
           parent: node,
           folders: [],
           images: [],
+          zips: [],
           jsons: [],
           cover: null,
         }
@@ -265,12 +289,12 @@ export function buildFolderTree(entries, pages) {
     else if (isImage(e.path)) {
       const page = pageByPath.get(e.path)
       if (page) node.images.push(page)
-    }
+    } else if (isZip(e.path)) node.zips.push({ ...e, parent: node })
   }
-  // 修剪不含任何图片（含嵌套）的空目录分支，保持列表里每一项都可打开
+  // 修剪不含任何图片 / 压缩包（含嵌套）的空目录分支，保持列表里每一项都可打开
   function prune(n) {
     for (const f of n.folders) prune(f)
-    n.folders = n.folders.filter((f) => f.images.length || f.folders.length)
+    n.folders = n.folders.filter((f) => f.images.length || f.folders.length || f.zips.length)
   }
   prune(root)
   const rootName = sorted[0]?.path.split('/')[0] || ''

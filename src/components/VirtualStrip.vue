@@ -72,7 +72,11 @@ const stripStyle = computed(() => {
     : { width: layout.value.total + 'px', height: '100%' }
 })
 
+// 轴切换期间禁止 currentIndex watch 用旧 pos.v 在新布局里算出脏页覆写 state.current
+let axisSwitching = false
+
 watch(currentIndex, (v) => {
+  if (axisSwitching) return
   if (v !== state.current) state.current = v
 })
 
@@ -112,13 +116,22 @@ watch(
 watch(
   () => props.axis,
   () => {
+    // flush: 'sync' —— 在 setMode 赋值的同一同步时刻捕获当前页。
+    // 若用默认 pre flush，同轮 flush 里先注册的 currentIndex watch 会用旧 pos.v
+    // 在新布局中算出脏页并覆写 state.current，导致跳转目标错误。
+    const target = state.current
+    axisSwitching = true
     pos.v = 0
     jumpPending = false
     strip.cancelZoom()
     // 切换阅读模式（布局）时重置单图缩放
     state.singleZoom = null
-    nextTick(() => scrollToPage(state.current, false))
-  }
+    nextTick(() => {
+      scrollToPage(target, false)
+      axisSwitching = false
+    })
+  },
+  { flush: 'sync' }
 )
 
 function onScroll() {
@@ -130,7 +143,9 @@ function onScroll() {
 }
 
 function scrollToPage(i, smooth = true) {
-  if (!layout.value.starts.length) return
+  if (!layout.value.starts.length) {
+    return
+  }
   const target = targetFor(i)
   if (vertical.value) scroller.value.scrollTo({ top: target, behavior: smooth ? 'smooth' : 'auto' })
   else scroller.value.scrollTo({ left: target, behavior: smooth ? 'smooth' : 'auto' })

@@ -10,7 +10,10 @@ export function useGestureScroll({ scroller, axis, isTablet, getViewport }) {
 
   const drag = reactive({ on: false, x: 0, y: 0, sx: 0, sy: 0, moved: false })
   const wheelAnim = reactive({ target: 0, raf: 0 })
-  const inertia = reactive({ on: false, velocity: 0, raf: 0, lastTime: 0, lastPos: 0 })
+  const inertia = reactive({ on: false, velocity: 0, raf: 0 })
+  // 拖拽过程中的滚动位置采样（环形缓冲），松手时用最近 ~120ms 窗口的平均速度启动惯性。
+  // 只取最后一次 move 的瞬时速度会在松手前的减速停顿处归零，导致惯性完全不触发。
+  const samples = []
 
   function onWheel(e) {
     if (vertical()) return
@@ -58,14 +61,32 @@ export function useGestureScroll({ scroller, axis, isTablet, getViewport }) {
     drag.y = e.clientY
     drag.sx = scroller.value.scrollLeft
     drag.sy = scroller.value.scrollTop
-    inertia.lastTime = Date.now()
-    inertia.lastPos = vertical() ? e.clientY : e.clientX
+    samples.length = 0
+    sample()
     try {
       scroller.value.setPointerCapture(e.pointerId)
     } catch {
       /* ignore */
     }
     e.preventDefault()
+  }
+
+  // 记录当前滚动位置采样，只保留最近 ~120ms（最多 16 条）
+  function sample() {
+    const now = Date.now()
+    samples.push([now, vertical() ? scroller.value.scrollTop : scroller.value.scrollLeft])
+    while (samples.length > 2 && samples[0][0] < now - 120) samples.shift()
+    while (samples.length > 16) samples.shift()
+  }
+
+  // 最近窗口内的平均滚动速度（px/ms）；采样不足或窗口内无位移返回 0
+  function estimateVelocity() {
+    if (samples.length < 2) return 0
+    const [t0, p0] = samples[0]
+    const [t1, p1] = samples[samples.length - 1]
+    const dt = t1 - t0
+    if (dt <= 0) return 0
+    return (p1 - p0) / dt
   }
 
   function onPointerMove(e) {
@@ -76,17 +97,7 @@ export function useGestureScroll({ scroller, axis, isTablet, getViewport }) {
     drag.moved = true
     scroller.value.scrollLeft = drag.sx - dx
     scroller.value.scrollTop = drag.sy - dy
-
-    if (isTablet()) {
-      const now = Date.now()
-      const dt = now - inertia.lastTime
-      if (dt > 0) {
-        const p = vertical() ? e.clientY : e.clientX
-        inertia.velocity = (p - inertia.lastPos) / dt
-        inertia.lastTime = now
-        inertia.lastPos = p
-      }
-    }
+    sample()
   }
 
   function endDrag(e) {
@@ -98,10 +109,13 @@ export function useGestureScroll({ scroller, axis, isTablet, getViewport }) {
       /* ignore */
     }
 
-    if (isTablet() && drag.moved && Math.abs(inertia.velocity) > 0.1) {
+    const vel = estimateVelocity()
+    samples.length = 0
+    if (isTablet() && drag.moved && Math.abs(vel) > 0.05) {
       inertia.on = true
+      inertia.velocity = vel
       const friction = 0.95
-      const minVelocity = 0.5
+      const minVelocity = 0.15
 
       const step = () => {
         if (!inertia.on) return
@@ -111,15 +125,14 @@ export function useGestureScroll({ scroller, axis, isTablet, getViewport }) {
           return
         }
         if (vertical()) {
-          scroller.value.scrollTop -= inertia.velocity * 16
+          scroller.value.scrollTop += inertia.velocity * 16
         } else {
-          scroller.value.scrollLeft -= inertia.velocity * 16
+          scroller.value.scrollLeft += inertia.velocity * 16
         }
         inertia.raf = requestAnimationFrame(step)
       }
       inertia.raf = requestAnimationFrame(step)
     }
-    inertia.velocity = 0
   }
 
   // 拖拽结束后消费掉本次位移，避免触发点击翻页

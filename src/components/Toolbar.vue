@@ -3,13 +3,19 @@ import { ref, computed, nextTick } from 'vue'
 import FilePicker from './FilePicker.vue'
 import SettingsDialog from './SettingsDialog.vue'
 import RemoteDialog from './RemoteDialog.vue'
-import { state, setMode, setZoom, setZoomMode, jumpTo, toggleDanmaku, toggleTabletMode, toggleCrop, backToList } from '../store'
+import { state, setMode, setZoom, setZoomMode, jumpTo, toggleDanmaku, toggleTabletMode, toggleCrop, backToList, chapterNav, navChapter } from '../store'
 import { MODE_VERTICAL, MODE_HORIZONTAL, MODE_RIGHT_TO_LEFT, isHorizontalMode } from '../lib/modes'
 import { settings } from '../lib/settings'
 import { ui, toggleToolbar, openSettings, openRemote } from '../lib/uiState'
 
 const picker = ref(null)
 const jumpVal = ref(null)
+const jumpFocused = ref(false)
+// 页码响应式显示：未聚焦时显示当前页（state.current + 1），聚焦编辑时显示输入值
+const jumpDisplay = computed({
+  get: () => (jumpFocused.value ? jumpVal.value : state.current + 1),
+  set: (v) => (jumpVal.value = v),
+})
 const collapsed = computed(() => !ui.toolbarOpen)
 const floatVisible = ref(true)
 let fadeTimer = 0
@@ -72,13 +78,19 @@ function hideTitleTip() {
           <span ref="titleRef" class="tb-title">{{ state.title }}</span>
           <div v-if="showTip" ref="tooltipRef" class="tb-title-tooltip" :style="tipPos">{{ state.title }}</div>
         </div>
+        <template v-if="chapterNav">
+          <button class="ch-nav" :disabled="!chapterNav.prev" @click="navChapter(-1)">上一话</button>
+          <button class="ch-nav" :disabled="!chapterNav.next" @click="navChapter(1)">下一话</button>
+        </template>
         <template v-if="state.pages.length">
           <input
-            v-model.number="jumpVal"
+            v-model.number="jumpDisplay"
             class="page-jump"
             type="number"
             min="1"
             :max="state.pages.length"
+            @focus="jumpFocused = true"
+            @blur="jumpFocused = false; jumpVal = null"
             @keydown.enter="doJump"
             placeholder="页码"
           />
@@ -202,7 +214,8 @@ function hideTitleTip() {
   width: 100%;
 }
 .tb-title-wrap {
-  flex: 1;
+  width: 50%;
+  flex: none;
   min-width: 0;
 }
 .tb-title {
@@ -305,6 +318,16 @@ button.on {
   border-color: rgba(0, 120, 212, 0.28);
   color: var(--accent);
   font-weight: 600;
+}
+.ch-nav {
+  flex-shrink: 0;
+}
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+button:disabled:hover {
+  background: transparent;
 }
 .sep {
   width: 1px;

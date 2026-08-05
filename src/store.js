@@ -1,5 +1,5 @@
-import { reactive, ref, watch } from 'vue'
-import { walkItems, walkDirHandle, unzip, extractDims, extractDimsInto, naturalCompare, isImage, isJson, isDanmakuJson, isZip, buildFolderTree } from './lib/importer'
+import { reactive, ref, watch,computed } from 'vue'
+import { walkItems, walkDirHandle, unzip, extractDims, extractDimsInto, naturalCompare, folderNameCompare, isImage, isJson, isDanmakuJson, isZip, buildFolderTree } from './lib/importer'
 import { MODE_VERTICAL, MODES, isMode, isHorizontalMode } from './lib/modes'
 import { parseUniversalDanmaku } from './lib/danmakuParser'
 import { flushBlobCache } from './lib/blobUrlCache'
@@ -28,6 +28,8 @@ export const state = reactive({
   view: 'comic', // 'comic' | 'list'
   tree: null,
   dir: null,
+  // 从列表打开的漫画来源（目录节点或压缩包条目），供上一话 / 下一话导航定位
+  sourceEntry: null,
   // 单图缩放（Ctrl+滚轮）：{ index, zoom, ax, ay }，仅对目标页 img 做 CSS transform，不改变布局。
   // index 为页下标；ax / ay 为图片内锚点比例（0~1，transform-origin 用）。切换阅读模式时重置。
   singleZoom: null,
@@ -145,9 +147,9 @@ export function jumpTo(i) {
 
 // ---------- 文件夹列表视图导航 ----------
 
-// 点击列表条目：含子文件夹则下钻一层；叶子文件夹（仅含图片）打开为漫画
+// 点击列表条目：含子文件夹或压缩文件则下钻一层；叶子文件夹（仅含图片）打开为漫画
 export function openFolderNode(node) {
-  if (node.folders.length) {
+  if (node.folders.length || node.zips.length) {
     state.dir = node
     state.title = node.name
     return
@@ -166,6 +168,64 @@ export function openSelfComic() {
   openComicFromNode(dir)
 }
 
+// 打开列表中的压缩包条目：压缩文件一律按漫画处理。
+// 首次打开时解压 + 按需解析尺寸（结果缓存到条目上，再次打开秒开）；
+// 压缩包内的弹幕 JSON 自动加载，进度按压缩包路径独立记忆。
+export async function openZipEntry(zipEntry) {
+  const seq = ++openSeq
+  if (!zipEntry.pages) {
+    state.status = 'loading'
+    state.loading = { label: '解压中…', current: 0, total: 0 }
+    let unzipped
+    try {
+      unzipped = await unzip(zipEntry.file, (c, t) => {
+        if (seq !== openSeq) return
+        state.loading.current = c
+        state.loading.total = t
+        state.loading.label = '解压中…'
+      })
+    } catch (e) {
+      console.error(e)
+      state.status = 'ready'
+      showToast('解压失败：' + e.message)
+      return
+    }
+    if (seq !== openSeq) return
+    const imgs = unzipped
+      .filter((e) => isImage(e.path))
+      .sort((a, b) => naturalCompare(a.path, b.path))
+    if (!imgs.length) {
+      state.status = 'ready'
+      showToast('压缩包内未找到图片')
+      return
+    }
+    const jsons = unzipped.filter((e) => isJson(e.path))
+    const danmakuJson = jsons.find((e) => isDanmakuJson(e.path)) || jsons[0]
+    if (danmakuJson) zipEntry.danmakuFile = danmakuJson.file
+    state.loading = { label: '读取图片信息…', current: 0, total: imgs.length }
+    const pages = await extractDims(imgs, (c) => {
+      if (seq === openSeq) state.loading.current = c
+    }, 4, settings.maxRenderSize)
+    if (seq !== openSeq) return
+    pages.forEach((p, i) => (p.key = i))
+    zipEntry.pages = pages
+  }
+  releasePages()
+  state.pages = zipEntry.pages
+  state.sourceEntry = zipEntry
+  const base = zipEntry.path.split('/').pop()
+  state.title = base.slice(0, base.lastIndexOf('.')) || base
+  state.progressKey = zipEntry.path
+  state.current = 0
+  state.zoom = 1
+  state.zoomMode = 'width'
+  restoreProgress()
+  if (zipEntry.danmakuFile) loadDanmakuFile(zipEntry.danmakuFile)
+  else state.danmaku = null
+  state.view = 'comic'
+  state.status = 'ready'
+}
+
 // 从漫画返回目录列表（state.dir 仍指向打开漫画前所在目录）
 export function backToList() {
   state.view = 'list'
@@ -178,6 +238,49 @@ export function goUp() {
     state.dir = state.dir.parent
     state.title = state.dir.name
   }
+}
+
+// 压缩包显示名：去目录前缀与扩展名
+export function zipName(z) {
+  const base = z.path.split('/').pop()
+  const i = base.lastIndexOf('.')
+  return i > 0 ? base.slice(0, i) : base
+}
+
+// 父目录下的同级条目（子文件夹 + 压缩包），按显示名智能排序
+function chapterItems(node) {
+  const items = [
+    ...node.folders.map((f) => ({ kind: 'folder', entry: f, name: f.name })),
+    ...node.zips.map((z) => ({ kind: 'zip', entry: z, name: zipName(z) })),
+  ]
+  return items.sort((a, b) => folderNameCompare(a.name, b.name))
+}
+
+// 上一话 / 下一话可用性：仅当存在列表视图上下文（state.tree）且当前条目有同级条目时。
+// 当前定位：列表视图取所在目录，漫画视图取打开来源（sourceEntry）。
+export const chapterNav = computed(() => {
+  if (!state.tree) return null
+  const container =
+    state.view === 'comic' && state.sourceEntry ? state.sourceEntry.parent : state.dir?.parent
+  if (!container) return null
+  const items = chapterItems(container)
+  if (items.length < 2) return null
+  const idx =
+    state.view === 'comic' && state.sourceEntry
+      ? items.findIndex((it) => it.entry === state.sourceEntry)
+      : items.findIndex((it) => it.entry === state.dir)
+  if (idx === -1) return null
+  return { prev: items[idx - 1] || null, next: items[idx + 1] || null }
+})
+
+// 快捷跳转上一话 / 下一话：压缩包直接打开为漫画，文件夹按下钻 / 打开漫画规则处理
+export function navChapter(dir) {
+  const nav = chapterNav.value
+  if (!nav) return
+  const target = dir < 0 ? nav.prev : nav.next
+  if (!target) return
+  if (target.kind === 'zip') openZipEntry(target.entry)
+  else openFolderNode(target.entry)
 }
 
 // 打开漫画竞态防护：进行中的懒加载解析会被更新的打开操作或新导入作废
@@ -205,6 +308,7 @@ async function openComicFromNode(node) {
   }
   releasePages()
   state.pages = node.images
+  state.sourceEntry = node
   state.title = node.name
   state.progressKey = node.path
   state.current = 0
@@ -238,10 +342,15 @@ async function handleEntries(entries, kind) {
   // 打开新漫画时清空上一本的弹幕：新漫画自带弹幕 JSON 时
   // 由下方 loadDanmakuFile 重新填充，否则应保持为空。
   state.danmaku = null
+  state.sourceEntry = null
   const externalJsons = entries.filter((e) => isJson(e.path))
   const zips = entries.filter((e) => isZip(e.path))
   let titleEntries = entries
-  if (zips.length) {
+  // 单个压缩文件（可与弹幕 JSON 一并拖入）→ 解压后直接作为漫画打开；
+  // 压缩文件与子目录 / 图片混存、或多个压缩文件 → 进入列表视图（下方 buildFolderTree 分支）。
+  const nonZipEntries = entries.filter((e) => !isJson(e.path) && !isZip(e.path))
+  const soloZip = kind === 'zip' || (nonZipEntries.length === 0 && zips.length === 1)
+  if (soloZip) {
     state.loading = { label: '解压中…', current: 0, total: 0 }
     entries = await unzip(zips[0].file, (c, t) => {
       state.loading.current = c
@@ -262,15 +371,9 @@ async function handleEntries(entries, kind) {
   const danmakuJson = jsons.find((e) => isDanmakuJson(e.path)) || jsons[0]
   if (jsons.length) await loadDanmakuFile(danmakuJson.file)
 
-  if (!imgs.length) {
-    state.status = 'empty'
-    showToast('未找到图片文件')
-    return
-  }
-
-  // 文件夹层级结构（存在子文件夹）→ 进入列表视图：不直接打开漫画。
+  // 文件夹层级结构（存在子文件夹或压缩文件）→ 进入列表视图：不直接打开漫画。
   // 页面先以占位尺寸挂到树上（封面显示无需尺寸，列表立即进入），
-  // 尺寸 / 裁边 / 超限缩小在打开对应漫画时按需解析（见 openComicFromNode），
+  // 尺寸 / 裁边 / 超限缩小在打开对应漫画时按需解析（见 openComicFromNode / openZipEntry），
   // 已解析页面挂回树上，会话内重复打开秒开。
   if (kind === 'folder') {
     if (currentImportId !== importId) return
@@ -284,7 +387,7 @@ async function handleEntries(entries, kind) {
       key: i,
     }))
     const tree = buildFolderTree(entries, rawPages)
-    if (tree.folders.length) {
+    if (tree.folders.length || tree.zips.length) {
       releasePages()
       state.tree = tree
       state.dir = tree
@@ -292,9 +395,15 @@ async function handleEntries(entries, kind) {
       state.title = tree.name
       state.progressKey = ''
       state.status = 'ready'
-      showToast(`检测到 ${tree.folders.length} 个子文件夹`)
+      showToast(`检测到 ${tree.folders.length} 个子文件夹${tree.zips.length ? `、${tree.zips.length} 个压缩包` : ''}`)
       return
     }
+  }
+
+  if (!imgs.length) {
+    state.status = 'empty'
+    showToast('未找到图片文件')
+    return
   }
 
   state.loading = { label: '读取图片信息…', current: 0, total: imgs.length }
