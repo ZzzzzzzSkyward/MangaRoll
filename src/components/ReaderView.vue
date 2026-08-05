@@ -2,12 +2,14 @@
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import VirtualStrip from './VirtualStrip.vue'
 import { state, setZoom, setZoomMode, toggleDanmaku, toggleCrop, toggleOcr, cycleMode } from '../store'
-import { MODE_RIGHT_TO_LEFT, isHorizontalMode } from '../lib/modes'
+import { MODE_VERTICAL, MODE_RIGHT_TO_LEFT, isHorizontalMode } from '../lib/modes'
 import { serializeKey, resolveAction } from '../lib/keybindings'
 import { ui, toggleToolbar } from '../lib/uiState'
 import { backToList, navChapter } from '../lib/importManager'
 
 const strip = ref(null)
+let lastTurnEdge = null
+let lastTurnTime = 0
 
 function last() {
   return state.pages.length - 1
@@ -18,7 +20,32 @@ function cur() {
 }
 
 function turn(d) {
-  strip.value?.scrollToPage(Math.max(0, Math.min(last(), cur() + d)))
+  if (!strip.value) return
+  const s = strip.value
+  let edge
+  if (state.mode === MODE_VERTICAL) {
+    edge = d > 0 ? 'bottom' : 'top'
+  } else if (state.mode === MODE_RIGHT_TO_LEFT) {
+    edge = d > 0 ? 'left' : 'right'
+  } else {
+    edge = d > 0 ? 'right' : 'left'
+  }
+  const now = performance.now()
+  // 同一方向短时间内连续按键 → 跳过对齐检查，直接前进
+  if (lastTurnEdge === edge && now - lastTurnTime < 800) {
+    const edgePage = s.pageAtEdge(edge)
+    s.scrollToPage(Math.max(0, Math.min(last(), edgePage + d)))
+    lastTurnTime = now
+    return
+  }
+  const edgePage = s.pageAtEdge(edge)
+  if (s.isEdgeAligned(edgePage, edge)) {
+    s.scrollToPage(Math.max(0, Math.min(last(), edgePage + d)))
+  } else {
+    s.scrollToPageEdge(edgePage, edge)
+  }
+  lastTurnEdge = edge
+  lastTurnTime = now
 }
 
 function scrollVp(d) {

@@ -88,19 +88,46 @@ export function useStripLayout({ axis, scroller, pos, vp, getPages, getZoomMode,
     return { from, to }
   }
 
-  // 当前所在页：LTR 为视口中心所在页，RTL 为右缘所在页
+  // 当前所在页：视口中心所在页
   function pageAt(p) {
     const { starts, total } = layout.value
     const n = starts.length
     if (!n) return 0
     if (rightToLeft.value) {
-      const k = lowerBound(starts, total - (p + viewport.value))
-      return Math.max(0, k - 1)
+      const y = total - (p + viewport.value / 2)
+      const k = lowerBound(starts, y)
+      return Math.min(n - 1, Math.max(0, k - 1))
     }
     const c = p + viewport.value / 2
     let i = lowerBound(starts, c)
     if (i > 0 && starts[i] > c) i -= 1
     return Math.min(n - 1, i)
+  }
+
+  // 视口边缘所在页：edge = 'top' | 'bottom' | 'left' | 'right'
+  function pageAtEdge(edge) {
+    const { starts, sizes, total } = layout.value
+    const n = starts.length
+    if (!n) return 0
+    const p = pos.v
+    let contentPos
+    if (vertical.value) {
+      contentPos = edge === 'top' ? p : p + viewport.value - 1
+    } else if (rightToLeft.value) {
+      contentPos = edge === 'right' ? total - p - viewport.value : total - p - 1
+    } else {
+      contentPos = edge === 'left' ? p : p + viewport.value - 1
+    }
+    contentPos = Math.max(0, Math.min(total - 1, contentPos))
+    let i = lowerBound(starts, contentPos)
+    if (i > 0 && starts[i] > contentPos) i -= 1
+    return Math.min(n - 1, Math.max(0, i))
+  }
+
+  // 页尾位置（start + size）
+  function pageEnd(i) {
+    const { starts, sizes } = layout.value
+    return starts[i] + sizes[i]
   }
 
   // 翻页时目标滚动位置：RTL 需滚动到内容右缘对应位置（scrollLeft 最大值方向）
@@ -184,8 +211,11 @@ export function useStripLayout({ axis, scroller, pos, vp, getPages, getZoomMode,
     zoomAnim,
     layout,
     vertical,
+    rightToLeft,
     viewport,
     pageStart,
+    pageEnd,
+    pageAtEdge,
     rangeFor,
     pageAt,
     targetFor,

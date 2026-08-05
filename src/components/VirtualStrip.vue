@@ -37,7 +37,7 @@ const gesture = useGestureScroll({
   getViewport: () => strip.viewport.value,
 })
 
-const { vertical, layout, viewport, zoomAnim, rangeFor, pageAt, targetFor } = strip
+const { vertical, rightToLeft, layout, viewport, zoomAnim, rangeFor, pageAt, pageAtEdge, pageEnd, pageStart, targetFor } = strip
 
 const buffer = computed(() => {
   const { sizes } = layout.value
@@ -169,6 +169,44 @@ function scrollToPage(i, smooth = true) {
   else scroller.value.scrollTo({ left: target, behavior: smooth ? 'smooth' : 'auto' })
 }
 
+// 检查指定页的边缘是否已与屏幕边缘对齐
+function isEdgeAligned(i, edge) {
+  const { starts, sizes } = layout.value
+  const n = starts.length
+  if (!n || i < 0 || i >= n) return false
+  const el = scroller.value
+  if (!el) return false
+  const p = vertical.value ? el.scrollTop : el.scrollLeft
+  if (vertical.value) {
+    if (edge === 'top') return Math.abs(p - starts[i]) < 1
+    return Math.abs(p - (starts[i] + sizes[i] - viewport.value)) < 1
+  } else if (rightToLeft.value) {
+    if (edge === 'right') return Math.abs(p - (layout.value.total - starts[i] - viewport.value)) < 1
+    return Math.abs(p - (layout.value.total - starts[i] - sizes[i])) < 1
+  } else {
+    if (edge === 'left') return Math.abs(p - starts[i]) < 1
+    return Math.abs(p - (starts[i] + sizes[i] - viewport.value)) < 1
+  }
+}
+
+// 将指定页的边缘与屏幕边缘对齐
+function scrollToPageEdge(i, edge, smooth = true) {
+  if (!layout.value.starts.length) return
+  const { starts, sizes, total } = layout.value
+  const n = starts.length
+  const t = Math.max(0, Math.min(n - 1, i))
+  let target
+  if (vertical.value) {
+    target = edge === 'bottom' ? starts[t] + sizes[t] - viewport.value : starts[t]
+  } else if (rightToLeft.value) {
+    target = edge === 'left' ? total - starts[t] - sizes[t] : total - starts[t] - viewport.value
+  } else {
+    target = edge === 'right' ? starts[t] + sizes[t] - viewport.value : starts[t]
+  }
+  if (vertical.value) scroller.value.scrollTo({ top: target, behavior: smooth ? 'smooth' : 'auto' })
+  else scroller.value.scrollTo({ left: target, behavior: smooth ? 'smooth' : 'auto' })
+}
+
 function scrollByViewport(dir) {
   const d = viewport.value * dir
   if (vertical.value) scroller.value.scrollBy({ top: d, behavior: 'smooth' })
@@ -271,7 +309,7 @@ onBeforeUnmount(() => {
   scroller.value?.removeEventListener('wheel', onWheelProxy)
 })
 
-defineExpose({ scrollToPage, scrollByViewport, currentIndex, consumeClick: gesture.consumeClick })
+defineExpose({ scrollToPage, scrollToPageEdge, scrollByViewport, isEdgeAligned, pageAtEdge, currentIndex, consumeClick: gesture.consumeClick })
 </script>
 
 <template>
