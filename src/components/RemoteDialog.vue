@@ -1,6 +1,6 @@
 <script setup>
 import { ref, watch } from 'vue'
-import { importRemote } from '../store'
+import { importRemote } from '../lib/importManager'
 import { closeRemote, ui } from '../lib/uiState'
 
 const mode = ref('manifest')

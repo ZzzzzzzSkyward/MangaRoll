@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import VirtualStrip from './VirtualStrip.vue'
-import { state, setZoom, setZoomMode, toggleDanmaku, toggleTabletMode, toggleCrop, toggleOcr, cycleMode } from '../store'
+import { state, setZoom, setZoomMode, toggleDanmaku, toggleCrop, toggleOcr, cycleMode } from '../store'
 import { MODE_RIGHT_TO_LEFT, isHorizontalMode } from '../lib/modes'
 import { serializeKey, resolveAction } from '../lib/keybindings'
 import { ui, toggleToolbar } from '../lib/uiState'
@@ -43,7 +43,6 @@ const ACTIONS = {
   fitWidth: () => setZoomMode('width'),
   fitHeight: () => setZoomMode('height'),
   toggleCrop: () => toggleCrop(),
-  toggleTablet: () => toggleTabletMode(),
   cycleMode: () => cycleMode(),
   toggleToolbar: () => toggleToolbar(),
   toggleOCR: () => toggleOcr(),
@@ -74,12 +73,17 @@ function onClick(e) {
   }
 }
 
+function onContextMenu(e) {
+  e.preventDefault()
+  toggleToolbar()
+}
+
 onMounted(() => window.addEventListener('keydown', onKey))
 onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 </script>
 
 <template>
-  <div class="reader" @click="onClick">
+  <div class="reader" @click="onClick" @contextmenu="onContextMenu">
     <VirtualStrip ref="strip" :axis="state.mode" />
   </div>
 </template>

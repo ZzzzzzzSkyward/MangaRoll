@@ -4,7 +4,8 @@ import Toolbar from './components/Toolbar.vue'
 import DropZone from './components/DropZone.vue'
 import ReaderView from './components/ReaderView.vue'
 import FolderList from './components/FolderList.vue'
-import { state, dragging, toast, importDropped } from './store'
+import { state, dragging, toast } from './store'
+import { importDropped } from './lib/importManager'
 
 const loadPct = computed(() =>
   state.loading.total > 0 ? Math.round((state.loading.current / state.loading.total) * 100) : 0

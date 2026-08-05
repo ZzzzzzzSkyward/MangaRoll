@@ -45,7 +45,7 @@ export function parseUniversalDanmaku(data) {
     throw new Error('meta 必须为对象')
   }
   if (!Array.isArray(data.danmaku)) {
-    throw new Error('缺少 danmaku 数组')
+    return { byPage: new Map(), count: 0, skipped: 0 }
   }
 
   const byPage = new Map()

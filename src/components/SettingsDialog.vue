@@ -104,6 +104,19 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onCaptureKey, true))
             <span class="sp-hint">重新导入后生效</span>
           </div>
           <div class="sp-row">
+            <label for="loadMode">图片加载</label>
+            <select id="loadMode" v-model="settings.imageLoadMode">
+              <option value="lazy">懒加载（仅加载视口附近）</option>
+              <option value="preload">预加载（顺序加载全部）</option>
+            </select>
+          </div>
+          <div class="sp-row">
+            <label class="sp-switch">
+              <input type="checkbox" v-model="settings.prefetchChapter" />
+              <span>预读下一话（接近末尾时自动加载）</span>
+            </label>
+          </div>
+          <div class="sp-row">
             <label class="sp-switch">
               <input type="checkbox" v-model="settings.moireEnabled" />
               <span>摩尔纹去网纹（WebGL 双边滤波）</span>

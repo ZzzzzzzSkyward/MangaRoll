@@ -15,7 +15,6 @@ export const ACTION_DEFS = {
   fitWidth: '适应宽度',
   fitHeight: '适应高度',
   toggleCrop: '自动裁边开关',
-  toggleTablet: '平板模式开关',
   cycleMode: '切换阅读模式',
   toggleToolbar: '收起/展开工具栏',
   toggleOCR: 'OCR 开关',

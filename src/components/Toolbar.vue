@@ -3,7 +3,9 @@ import { ref, computed, nextTick } from 'vue'
 import FilePicker from './FilePicker.vue'
 import SettingsDialog from './SettingsDialog.vue'
 import RemoteDialog from './RemoteDialog.vue'
-import { state, setMode, setZoom, setZoomMode, jumpTo, toggleDanmaku, toggleTabletMode, toggleCrop, backToList, chapterNav, navChapter } from '../store'
+import { state, setMode, setZoom, setZoomMode, jumpTo, toggleDanmaku, toggleCrop } from '../store'
+import { backToList, navChapter } from '../lib/importManager'
+import { chapterNav } from '../lib/chapterNav'
 import { MODE_VERTICAL, MODE_HORIZONTAL, MODE_RIGHT_TO_LEFT, isHorizontalMode } from '../lib/modes'
 import { settings } from '../lib/settings'
 import { ui, toggleToolbar, openSettings, openRemote } from '../lib/uiState'
@@ -148,10 +150,6 @@ function hideTitleTip() {
           <option :value="1.5">1.5×</option>
           <option :value="2">2×</option>
         </select>
-        <span class="sep"></span>
-        <button :class="{ on: state.tabletMode }" title="平板模式：开启拖拽惯性和双指缩放" @click="toggleTabletMode">
-          平板 {{ state.tabletMode ? '开' : '关' }}
-        </button>
         <span class="sep"></span>
         <button title="设置（快捷键 / 渲染 / OCR）" @click="openSettings()">设置</button>
       </div>

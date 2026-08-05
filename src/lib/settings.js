@@ -19,7 +19,6 @@ const DEFAULT_ACTIONS = {
   fitWidth: [],
   fitHeight: [],
   toggleCrop: [],
-  toggleTablet: [],
   cycleMode: [],
   toggleToolbar: [],
   toggleOCR: [],
@@ -40,6 +39,8 @@ const defaults = {
   ocrTextColor: '#ffffff', // OCR 文字颜色（show 模式）
   ocrTextOpacity: 100, // OCR 叠加透明度（%）
   ocrSelectable: false, // OCR 文本是否可被选中复制
+  imageLoadMode: 'lazy', // 图片加载模式：'lazy' 懒加载（仅加载视口附近）| 'preload' 预加载（顺序加载全部）
+  prefetchChapter: false, // 预读模式：开启后自动预读下一话的图片
   keybindings: null, // null 表示使用默认 DEFAULT_KEYS，否则 { action: [按键串] }
 }
 

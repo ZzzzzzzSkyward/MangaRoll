@@ -1,6 +1,7 @@
 <script setup>
 import { ref } from 'vue'
-import { importFolder, importDirectoryHandle, importZip, loadDanmakuFile } from '../store'
+import { importFolder, importDirectoryHandle, importZip } from '../lib/importManager'
+import { loadDanmakuFile } from '../lib/danmakuLoader'
 
 const supportsDirectoryPicker = typeof window.showDirectoryPicker === 'function'
 const folderInput = ref(null)

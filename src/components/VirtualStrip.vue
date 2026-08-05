@@ -1,12 +1,12 @@
 <script setup>
 import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import PageSlot from './PageSlot.vue'
-import { state, setZoomValue } from '../store'
+import { state } from '../store'
 import { MODE_VERTICAL, MODE_RIGHT_TO_LEFT } from '../lib/modes'
 import { settings } from '../lib/settings'
 import { useStripLayout } from '../composables/useStripLayout'
 import { useGestureScroll } from '../composables/useGestureScroll'
-import { usePinch } from '../composables/usePinch'
+import { preloadImage } from '../lib/preloadManager'
 
 const props = defineProps({
   axis: { type: String, default: MODE_VERTICAL },
@@ -34,14 +34,7 @@ const strip = useStripLayout({
 const gesture = useGestureScroll({
   scroller,
   axis,
-  isTablet: () => state.tabletMode,
   getViewport: () => strip.viewport.value,
-})
-
-const pinch = usePinch({
-  isTablet: () => state.tabletMode,
-  getZoom: () => state.zoom,
-  setZoom: setZoomValue,
 })
 
 const { vertical, layout, viewport, zoomAnim, rangeFor, pageAt, targetFor } = strip
@@ -56,6 +49,14 @@ const buffer = computed(() => {
 
 const visible = computed(() => {
   if (!layout.value.starts.length) return []
+  // 预加载模式：扩大渲染范围（3倍视口），同时由 preloadManager 在后台顺序加载全部图片
+  if (settings.imageLoadMode === 'preload') {
+    const { from, to } = rangeFor(pos.v, viewport.value * 3)
+    const out = []
+    for (let i = from; i < to; i++) out.push(i)
+    if (!out.length) out.push(pageAt(pos.v))
+    return out
+  }
   const { from, to } = rangeFor(pos.v, buffer.value)
   const out = []
   for (let i = from; i < to; i++) out.push(i)
@@ -64,6 +65,22 @@ const visible = computed(() => {
 })
 
 const currentIndex = computed(() => (layout.value.starts.length ? pageAt(pos.v) : 0))
+
+// 预加载模式：当前页变化时触发后台顺序预加载
+let preloadAbort = null
+watch(
+  () => [settings.imageLoadMode, state.pages.length, currentIndex.value],
+  ([mode, len, cur]) => {
+    if (preloadAbort) {
+      preloadAbort.abort()
+      preloadAbort = null
+    }
+    if (mode === 'preload' && len > 0) {
+      preloadAbort = preloadImage(state.pages, cur)
+    }
+  },
+  { immediate: true }
+)
 
 const stripStyle = computed(() => {
   if (!layout.value.starts.length) return vertical.value ? { height: '0px' } : { width: '0px' }
@@ -98,6 +115,7 @@ watch(layout, () => {
     nextTick(() => scrollToPage(state.current, false))
     return
   }
+  if (axisSwitching) return
   if (strip.isZooming()) return
   if (strip.consumeSnap()) return
   nextTick(() => scrollToPage(currentIndex.value, false))
@@ -199,6 +217,35 @@ function onCtrlWheel(e) {
   state.singleZoom = { index: idx, zoom, ax, ay }
 }
 
+function onDblClick(e) {
+  const el = scroller.value
+  const { starts, sizes, cross, total } = layout.value
+  const n = starts.length
+  if (!el || !n) return
+  const rect = el.getBoundingClientRect()
+  const isRtl = props.axis === MODE_RIGHT_TO_LEFT
+  const raw = vertical.value ? e.clientY - rect.top + el.scrollTop : e.clientX - rect.left + el.scrollLeft
+  const contentPos = isRtl ? total - raw : raw
+
+  let idx = lowerBound(starts, contentPos)
+  if (idx > 0 && starts[idx] > contentPos) idx -= 1
+  idx = Math.min(n - 1, Math.max(0, idx))
+
+  const alongSize = sizes[idx]
+  const pageStartPos = isRtl ? total - starts[idx] - alongSize : starts[idx]
+  const ax = alongSize > 0 ? Math.min(1, Math.max(0, (contentPos - pageStartPos) / alongSize)) : 0.5
+  const acrossClient = vertical.value ? e.clientX - rect.left : e.clientY - rect.top
+  const acrossSize = cross[idx]
+  const ay = acrossSize > 0 ? Math.min(1, Math.max(0, acrossClient / acrossSize)) : 0.5
+
+  const prev = state.singleZoom && state.singleZoom.index === idx ? state.singleZoom.zoom : 1
+  if (prev === 1) {
+    state.singleZoom = { index: idx, zoom: 1.5, ax, ay }
+  } else {
+    state.singleZoom = null
+  }
+}
+
 function onWheelProxy(e) {
   if (e.ctrlKey) onCtrlWheel(e)
   else gesture.onWheel(e)
@@ -214,9 +261,6 @@ onMounted(() => {
   })
   ro.observe(scroller.value)
   scroller.value.addEventListener('wheel', onWheelProxy, { passive: false })
-  scroller.value.addEventListener('touchstart', pinch.onTouchStart, { passive: false })
-  scroller.value.addEventListener('touchmove', pinch.onTouchMove, { passive: false })
-  scroller.value.addEventListener('touchend', pinch.onTouchEnd)
 })
 
 onBeforeUnmount(() => {
@@ -225,9 +269,6 @@ onBeforeUnmount(() => {
   gesture.dispose()
   ro?.disconnect()
   scroller.value?.removeEventListener('wheel', onWheelProxy)
-  scroller.value?.removeEventListener('touchstart', pinch.onTouchStart)
-  scroller.value?.removeEventListener('touchmove', pinch.onTouchMove)
-  scroller.value?.removeEventListener('touchend', pinch.onTouchEnd)
 })
 
 defineExpose({ scrollToPage, scrollByViewport, currentIndex, consumeClick: gesture.consumeClick })
@@ -243,6 +284,7 @@ defineExpose({ scrollToPage, scrollByViewport, currentIndex, consumeClick: gestu
     @pointermove="gesture.onPointerMove"
     @pointerup="gesture.endDrag"
     @pointercancel="gesture.endDrag"
+    @dblclick="onDblClick"
   >
     <div class="strip" :class="vertical ? 'axis-y' : 'axis-x'" :style="stripStyle">
       <PageSlot
