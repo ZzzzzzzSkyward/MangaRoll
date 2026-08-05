@@ -111,7 +111,6 @@ function hideTitleTip() {
         <button title="打开文件夹" @click="picker.pickFolder()">文件夹</button>
         <button title="打开 ZIP" @click="picker.pickZip()">ZIP</button>
         <button title="加载远程漫画" @click="openRemote()">远程</button>
-        <button title="导入弹幕 JSON" @click="picker.pickDanmaku()">弹幕</button>
         <span class="sep"></span>
 
         <button class="mode-btn" :class="{ on: state.mode === MODE_VERTICAL }" @click="setMode(MODE_VERTICAL)">纵向</button>

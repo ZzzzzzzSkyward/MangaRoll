@@ -1,12 +1,10 @@
 <script setup>
 import { ref } from 'vue'
 import { importFolder, importDirectoryHandle, importZip } from '../lib/importManager'
-import { loadDanmakuFile } from '../lib/danmakuLoader'
 
 const supportsDirectoryPicker = typeof window.showDirectoryPicker === 'function'
 const folderInput = ref(null)
 const zipInput = ref(null)
-const danmakuInput = ref(null)
 
 function onFolderChange(e) {
   if (e.target.files.length) importFolder(e.target.files)
@@ -35,21 +33,13 @@ function onZipChange(e) {
   e.target.value = ''
 }
 
-function onDanmakuChange(e) {
-  const f = e.target.files[0]
-  if (f) loadDanmakuFile(f)
-  e.target.value = ''
-}
-
 defineExpose({
   pickFolder: onPickFolder,
   pickZip: () => zipInput.value?.click(),
-  pickDanmaku: () => danmakuInput.value?.click(),
 })
 </script>
 
 <template>
   <input ref="folderInput" type="file" webkitdirectory hidden @change="onFolderChange" />
   <input ref="zipInput" type="file" accept=".zip" hidden @change="onZipChange" />
-  <input ref="danmakuInput" type="file" accept=".json" hidden @change="onDanmakuChange" />
 </template>
