@@ -127,6 +127,7 @@ watch(
     if (o === 0 && n > 0) {
       jumpPending = true
       strip.cancelZoom()
+      cancelSingleAnim()
     }
   }
 )
@@ -143,6 +144,7 @@ watch(
     jumpPending = false
     strip.cancelZoom()
     // 切换阅读模式（布局）时重置单图缩放
+    cancelSingleAnim()
     state.singleZoom = null
     nextTick(() => {
       scrollToPage(target, false)
@@ -224,6 +226,71 @@ function lowerBound(arr, x) {
   return lo
 }
 
+// ---- 单图缩放动画（双击恢复原大小）：rAF 缓动，结束置空 ----
+let singleAnim = 0
+
+function cancelSingleAnim() {
+  if (singleAnim) cancelAnimationFrame(singleAnim)
+  singleAnim = 0
+}
+
+// 缩放锚点钳制：确保放大后图片的左 / 上边缘不超出屏幕，无需拖动即可查看完整图片。
+// 横向轴（无滚动）：左边缘保持在视口内 → ax 上限 marginX/((z-1)W)；
+// 纵向轴（可滚动）：上/左边缘不越过页面起始位置（保证可滚动到）→ ay/ax 上限 starts[i]/((z-1)*尺寸)。
+function clampZoomAnchor(idx, ax, ay, zoom) {
+  const { starts, sizes, cross } = layout.value
+  if (!sizes.length || idx < 0 || idx >= sizes.length) return { ax, ay }
+  const W = vertical.value ? cross[idx] : sizes[idx]
+  const H = vertical.value ? sizes[idx] : cross[idx]
+  const z = zoom
+  if (!(W > 0) || !(H > 0) || z <= 1) return { ax, ay }
+  const marginX = vertical.value ? (vp.w - W) / 2 : (vp.h - H) / 2
+  const maxAx = marginX / ((z - 1) * W)
+  let maxAy
+  if (vertical.value) {
+    maxAy = starts[idx] / ((z - 1) * H)
+  } else if (rightToLeft.value) {
+    maxAy = (starts[idx] + z * W) / ((z - 1) * W)
+  } else {
+    maxAy = starts[idx] / ((z - 1) * W)
+  }
+  return {
+    ax: Math.min(ax, maxAx),
+    ay: Math.min(ay, maxAy),
+  }
+}
+
+function animateSingleZoomReset(idx) {
+  const s = state.singleZoom
+  if (!s || s.index !== idx) return
+  cancelSingleAnim()
+  const start = s.zoom
+  if (start <= 1.001) {
+    state.singleZoom = null
+    return
+  }
+  const t0 = performance.now()
+  const dur = 240
+  const step = (t) => {
+    const k = Math.min(1, (t - t0) / dur)
+    const e = 1 - Math.pow(1 - k, 3)
+    const zoom = start + (1 - start) * e
+    state.singleZoom = {
+      index: idx,
+      zoom,
+      ax: s.ax,
+      ay: s.ay,
+      animating: true,
+    }
+    if (k < 1) singleAnim = requestAnimationFrame(step)
+    else {
+      singleAnim = 0
+      state.singleZoom = null
+    }
+  }
+  singleAnim = requestAnimationFrame(step)
+}
+
 // Ctrl+滚轮：单图缩放 —— 只对光标下的图片做 CSS transform 缩放，不改变整条 strip 布局。
 // 目标图 z-index 临时置顶；切换阅读模式（布局）时重置，单纯滚动不重置。
 // 锚点取光标在图片内的比例（纵/横模式下图片恰好填满槽位，槽位比例即图片比例）。
@@ -252,7 +319,9 @@ function onCtrlWheel(e) {
 
   const prev = state.singleZoom && state.singleZoom.index === idx ? state.singleZoom.zoom : 1
   const zoom = Math.min(3, Math.max(0.5, prev * Math.exp(-e.deltaY * 0.0016)))
-  state.singleZoom = { index: idx, zoom, ax, ay }
+  cancelSingleAnim()
+  const c = clampZoomAnchor(idx, ax, ay, zoom)
+  state.singleZoom = { index: idx, zoom, ax: c.ax, ay: c.ay, animating: false }
 }
 
 function onDblClick(e) {
@@ -278,9 +347,11 @@ function onDblClick(e) {
 
   const prev = state.singleZoom && state.singleZoom.index === idx ? state.singleZoom.zoom : 1
   if (prev === 1) {
-    state.singleZoom = { index: idx, zoom: 1.5, ax, ay }
+    cancelSingleAnim()
+    const c = clampZoomAnchor(idx, ax, ay, 1.5)
+    state.singleZoom = { index: idx, zoom: 1.5, ax: c.ax, ay: c.ay, animating: false }
   } else {
-    state.singleZoom = null
+    animateSingleZoomReset(idx)
   }
 }
 
@@ -304,6 +375,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   cancelAnimationFrame(raf)
   strip.cancelZoom()
+  cancelSingleAnim()
   gesture.dispose()
   ro?.disconnect()
   scroller.value?.removeEventListener('wheel', onWheelProxy)

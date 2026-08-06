@@ -101,11 +101,12 @@ const imgStyle = computed(() => {
     base = { width: props.along + 'px', height: 'auto' }
   }
   if (single.value) {
+    const s = single.value
     return {
       ...base,
-      transformOrigin: `${single.value.ax * 100}% ${single.value.ay * 100}%`,
-      transform: (base.transform ? base.transform + ' ' : '') + `scale(${single.value.zoom})`,
-      transition: 'transform 0.12s ease-out, transform-origin 0.12s ease-out',
+      transformOrigin: `${s.ax * 100}% ${s.ay * 100}%`,
+      transform: (base.transform ? base.transform + ' ' : '') + `scale(${s.zoom})`,
+      transition: s.animating ? 'none' : 'transform 0.12s ease-out, transform-origin 0.12s ease-out',
     }
   }
   return base
