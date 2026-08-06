@@ -5,6 +5,8 @@ const cache = new Map() // key -> { url, radius }
 const pending = new Map() // key -> Promise<url|null>
 const revokeTimers = new Map()
 let queueChain = Promise.resolve()
+// 每次 flush +1：作废 flush 前已排队/仍在执行的处理结果，防止失效 blob URL 重新进入缓存
+let epoch = 0
 
 const REVOKE_DELAY = 2000
 
@@ -27,17 +29,20 @@ export async function ensureMoire(page, radius, size) {
   if (cache.has(ck)) return cache.get(ck).url
   if (pending.has(ck)) return pending.get(ck)
 
+  const myEpoch = epoch
   const p = queueChain
     .then(() => applyMoire(page.file, radius, size))
     .then((blob) => {
-      pending.delete(ck)
-      if (!blob) return null
+      // 只清理属于自己的 pending 项，避免误删 flush 后同 key 的新任务
+      if (pending.get(ck) === p) pending.delete(ck)
+      // flush 后（epoch 变化）丢弃结果：旧导入的 blob URL 失效，不得重新入缓存
+      if (!blob || myEpoch !== epoch) return null
       const url = URL.createObjectURL(blob)
       cache.set(ck, { url, radius, size })
       return url
     })
     .catch(() => {
-      pending.delete(ck)
+      if (pending.get(ck) === p) pending.delete(ck)
       return null
     })
   pending.set(ck, p)
@@ -75,6 +80,7 @@ export function cancelMoireRevoke(key, radius, size) {
 }
 
 export function flushMoireCache() {
+  epoch++
   for (const v of cache.values()) URL.revokeObjectURL(v.url)
   for (const t of revokeTimers.values()) clearTimeout(t)
   cache.clear()

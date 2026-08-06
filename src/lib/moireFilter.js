@@ -155,43 +155,47 @@ export async function applyMoire(blob, radius = 2, maxDim = 0) {
   const gl = createGL(out)
   if (!gl) return null
 
-  const tex = gl.createTexture()
-  gl.bindTexture(gl.TEXTURE_2D, tex)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src)
+  let tex = null
+  let buf = null
+  let prog = null
+  try {
+    tex = gl.createTexture()
+    gl.bindTexture(gl.TEXTURE_2D, tex)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src)
 
-  const prog = makeProgram(gl, r)
-  gl.useProgram(prog)
+    prog = makeProgram(gl, r)
+    gl.useProgram(prog)
 
-  const buf = gl.createBuffer()
-  gl.bindBuffer(gl.ARRAY_BUFFER, buf)
-  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW)
-  const loc = gl.getAttribLocation(prog, 'a_pos')
-  gl.enableVertexAttribArray(loc)
-  gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0)
+    buf = gl.createBuffer()
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf)
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW)
+    const loc = gl.getAttribLocation(prog, 'a_pos')
+    gl.enableVertexAttribArray(loc)
+    gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0)
 
-  gl.uniform1i(gl.getUniformLocation(prog, 'u_tex'), 0)
-  gl.uniform2f(gl.getUniformLocation(prog, 'u_texSize'), tw, th)
-  gl.viewport(0, 0, tw, th)
-  gl.drawArrays(gl.TRIANGLES, 0, 3)
+    gl.uniform1i(gl.getUniformLocation(prog, 'u_tex'), 0)
+    gl.uniform2f(gl.getUniformLocation(prog, 'u_texSize'), tw, th)
+    gl.viewport(0, 0, tw, th)
+    gl.drawArrays(gl.TRIANGLES, 0, 3)
 
-  // 输出到 canvas，再 toBlob（canvas 本身就是 render target，直接读取像素）
-  const result = new Promise((resolve) => {
-    out.toBlob(
-      (b) => {
-        // 释放本次处理创建的纹理/缓冲与画布（program 随 useProgram 生命周期走）
-        tex?.delete?.()
-        buf?.delete?.()
-        out.width = 0
-        out.height = 0
-        resolve(b)
-      },
-      'image/jpeg',
-      0.9
-    )
-  })
-  return result
+    // 输出到 canvas，再 toBlob（canvas 本身就是 render target，直接读取像素）
+    return await new Promise((resolve) => {
+      out.toBlob(resolve, 'image/jpeg', 0.9)
+    })
+  } finally {
+    // WebGL 对象（纹理/缓冲/程序）没有 delete() 方法，必须经 GL 上下文显式释放；
+    // 上下文通过 WEBGL_lose_context 归还 GPU 内存（设 width/height=0 只清帧缓冲，不释放上下文）。
+    // 全部资源放 finally，编译/链接失败等异常路径也不泄漏。
+    if (prog) gl.deleteProgram(prog)
+    if (buf) gl.deleteBuffer(buf)
+    if (tex) gl.deleteTexture(tex)
+    out.width = 0
+    out.height = 0
+    const lose = gl.getExtension('WEBGL_lose_context')
+    lose?.loseContext()
+  }
 }
