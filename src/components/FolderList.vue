@@ -3,7 +3,7 @@ import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { state } from '../store'
 import { settings } from '../lib/settings'
 import { openFolderNode, openSelfComic, openZipEntry } from '../lib/importManager'
-import { naturalCompare, folderNameCompare } from '../lib/importer'
+import { naturalCompare, folderNameCompare, extractZipCover, countZipImages } from '../lib/importer'
 
 const sortedFolders = computed( () =>
   [ ...( state.dir?.folders || [] ) ].sort( ( a, b ) => folderNameCompare( a.name, b.name ) )
@@ -66,10 +66,10 @@ const allListItems = computed( () => {
     items.push( { kind: 'self', name: state.dir.name, type: '本目录', count: state.dir.images.length, path: state.dir.path } )
   }
   for ( const n of filteredFolders.value ) {
-    items.push( { kind: 'folder', ref: n, name: n.name, type: n.folders.length ? '文件夹' : '漫画', count: nodeCount( n ), path: n.path } )
+    items.push( { kind: 'folder', ref: n, name: n.name, type: n.folders.length ? '文件夹' : '漫画', count: n.images.length, path: n.path } )
   }
   for ( const z of filteredZips.value ) {
-    items.push( { kind: 'zip', ref: z, name: zipName( z ), type: '压缩文件', count: -1, path: z.path } )
+    items.push( { kind: 'zip', ref: z, name: zipName( z ), type: '压缩文件', count: z.imageCount ?? -1, path: z.path } )
   }
   const k = settings.flSortKey
   const dir = settings.flSortAsc ? 1 : -1
@@ -114,10 +114,58 @@ function coverUrl ( node ) {
   return url
 }
 
-// 目录包含的图片总数（含嵌套子目录），叶子目录即漫画页数
-function nodeCount ( node ) {
-  return node.images.length + node.folders.reduce( ( s, f ) => s + nodeCount( f ), 0 )
+// ZIP 封面：懒提取（分块读中央目录 → 仅解压封面单条目），封面 blob 缓存到条目内存
+// （coverBlob），切换目录 / 卸载时只释放临时对象 URL，下次返回不再重复解压
+const zipCoverUrls = new Map()
+const zipCoverPending = new Set()
+
+async function loadZipCover ( z ) {
+  if ( z.coverBlob || zipCoverPending.has( z ) || !z.file ) return
+  zipCoverPending.add( z )
+  try {
+    const blob = await extractZipCover( z.file, z.pages )
+    if ( blob ) z.coverBlob = blob
+  } catch ( e ) {
+    console.error( 'ZIP 封面提取失败', z.path, e )
+  } finally {
+    zipCoverPending.delete( z )
+  }
 }
+
+function zipCoverUrl ( z ) {
+  if ( !z.coverBlob ) return ''
+  let url = zipCoverUrls.get( z )
+  if ( !url ) {
+    url = URL.createObjectURL( z.coverBlob )
+    zipCoverUrls.set( z, url )
+  }
+  return url
+}
+
+// ZIP 条目数：懒统计（仅读中央目录不解压），结果缓存到条目内存（imageCount）
+const zipCountPending = new Set()
+
+async function loadZipCount ( z ) {
+  if ( z.imageCount !== undefined || zipCountPending.has( z ) || !z.file ) return
+  zipCountPending.add( z )
+  try {
+    const count = await countZipImages( z.file, z.pages )
+    z.imageCount = count
+  } catch ( e ) {
+    console.error( 'ZIP 条目数统计失败', z.path, e )
+  } finally {
+    zipCountPending.delete( z )
+  }
+}
+
+// 网格视图下触发尚未提取封面的压缩包（列表视图不展示封面，跳过提取）；
+// 条目数两种视图都统计（供「项目数」列与按项目数排序使用）
+watch( [ filteredZips, () => settings.flViewMode ], ( [ zips ] ) => {
+  for ( const z of zips ) {
+    loadZipCount( z )
+    if ( settings.flViewMode === 'grid' ) loadZipCover( z )
+  }
+}, { immediate: true } )
 
 watch(
   () => state.dir,
@@ -130,6 +178,8 @@ watch(
       }
     }
     coverUrls.clear()
+    for ( const url of zipCoverUrls.values() ) URL.revokeObjectURL( url )
+    zipCoverUrls.clear()
   }
 )
 
@@ -141,6 +191,8 @@ onBeforeUnmount( () => {
     }
   }
   coverUrls.clear()
+  for ( const url of zipCoverUrls.values() ) URL.revokeObjectURL( url )
+  zipCoverUrls.clear()
 } )
 </script>
 
@@ -151,7 +203,7 @@ onBeforeUnmount( () => {
         <template v-for="(c, i) in crumbs" :key="c.node.path">
           <span v-if="i > 0" class="fl-crumb-sep">/</span>
           <button v-if="!c.current" class="fl-crumb" :title="c.node.path" @click="openFolderNode(c.node)">{{ c.node.name
-          }}</button>
+            }}</button>
           <span v-else class="fl-crumb-current" :title="c.node.path">{{ c.node.name }}</span>
         </template>
       </nav>
@@ -173,50 +225,50 @@ onBeforeUnmount( () => {
     </div>
     <div v-if="showSelfCard || filteredFolders.length || filteredZips.length">
       <div v-if="settings.flViewMode === 'grid'" class="fl-grid">
-        <div v-if="showSelfCard" class="fl-card" role="button" tabindex="0" @click="openSelfComic()"
+        <div v-if="showSelfCard" class="fl-card fl-card-self" role="button" tabindex="0" @click="openSelfComic()"
           @keydown.enter="openSelfComic()">
           <div class="fl-cover">
-            <span class="fl-badge">本目录</span>
             <img v-if="coverUrl(state.dir)" class="fl-img" :src="coverUrl(state.dir)" loading="lazy"
               :alt="state.dir.name" />
           </div>
           <div class="fl-name" :title="state.dir.name">{{ state.dir.name }}</div>
-          <div class="fl-count">{{ state.dir.images.length }} 张</div>
+          <div class="fl-count"><span class="fl-badge fl-badge-self fl-badge-inline">本目录</span>{{ state.dir.images.length }} 张</div>
         </div>
-        <div v-for="node in filteredFolders" :key="node.path" class="fl-card" role="button" tabindex="0"
+        <div v-for="node in filteredFolders" :key="node.path"
+          :class="node.folders.length ? 'fl-card fl-card-folder' : 'fl-card fl-card-comic'" role="button" tabindex="0"
           @click="openFolderNode(node)" @keydown.enter="openFolderNode(node)">
           <div class="fl-cover">
             <img v-if="coverUrl(node)" class="fl-img" :src="coverUrl(node)" loading="lazy" :alt="node.name" />
           </div>
           <div class="fl-name" :title="node.name">{{ node.name }}</div>
-          <div class="fl-count">{{ nodeCount(node) }} 张</div>
+          <div class="fl-count">{{ node.images.length }} 张</div>
         </div>
-        <div v-for="z in filteredZips" :key="z.path" class="fl-card" role="button" tabindex="0" @click="openZipEntry(z)"
-          @keydown.enter="openZipEntry(z)">
+        <div v-for="z in filteredZips" :key="z.path" class="fl-card fl-card-zip" role="button" tabindex="0"
+          @click="openZipEntry(z)" @keydown.enter="openZipEntry(z)">
           <div class="fl-cover">
-            <span class="fl-badge fl-badge-zip">ZIP</span>
-            <div class="fl-placeholder">压缩包</div>
+            <img v-if="zipCoverUrl(z)" class="fl-img" :src="zipCoverUrl(z)" loading="lazy" :alt="zipName(z)" />
+            <div v-else class="fl-placeholder">压缩包</div>
           </div>
           <div class="fl-name" :title="z.path">{{ zipName(z) }}</div>
-          <div class="fl-count">压缩文件</div>
+          <div class="fl-count"><span class="fl-badge fl-badge-zip fl-badge-inline">ZIP</span>压缩文件</div>
         </div>
       </div>
       <div v-else class="fl-list">
         <div class="fl-list-head">
           <span class="fl-list-col fl-list-col-icon"></span>
           <button class="fl-list-col fl-list-col-name fl-list-sort-btn" @click="setSort('name')">名称{{ sortArrow('name')
-          }}</button>
+            }}</button>
           <button class="fl-list-col fl-list-col-type fl-list-sort-btn" @click="setSort('type')">类型{{ sortArrow('type')
-          }}</button>
+            }}</button>
           <button class="fl-list-col fl-list-col-count fl-list-sort-btn" @click="setSort('count')">项目数{{
             sortArrow('count')
-          }}</button>
+            }}</button>
           <button class="fl-list-col fl-list-col-path fl-list-sort-btn" @click="setSort('path')">路径{{ sortArrow('path')
-          }}</button>
+            }}</button>
         </div>
         <template v-for="item in allListItems" :key="item.kind === 'self' ? 'self' : item.path">
-          <div v-if="item.kind === 'self'" class="fl-list-row" role="button" tabindex="0" @click="openSelfComic()"
-            @keydown.enter="openSelfComic()">
+          <div v-if="item.kind === 'self'" class="fl-list-row fl-list-row-self" role="button" tabindex="0"
+            @click="openSelfComic()" @keydown.enter="openSelfComic()">
             <span class="fl-list-col fl-list-col-icon">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                 <rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.2" />
@@ -228,8 +280,8 @@ onBeforeUnmount( () => {
             <span class="fl-list-col fl-list-col-count">{{ item.count }} 张</span>
             <span class="fl-list-col fl-list-col-path" :title="item.path">{{ item.path }}</span>
           </div>
-          <div v-else-if="item.kind === 'folder' && item.type === '漫画'" class="fl-list-row" role="button" tabindex="0"
-            @click="openFolderNode(item.ref)" @keydown.enter="openFolderNode(item.ref)">
+          <div v-else-if="item.kind === 'folder' && item.type === '漫画'" class="fl-list-row fl-list-row-comic"
+            role="button" tabindex="0" @click="openFolderNode(item.ref)" @keydown.enter="openFolderNode(item.ref)">
             <span class="fl-list-col fl-list-col-icon">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                 <path d="M3 2.5C3 2.5 5 2 8 2s5 .5 5 .5v11c0 0-2-.5-5-.5s-5 .5-5 .5v-11z" stroke="currentColor"
@@ -242,7 +294,7 @@ onBeforeUnmount( () => {
             <span class="fl-list-col fl-list-col-count">{{ item.count }} 张</span>
             <span class="fl-list-col fl-list-col-path" :title="item.path">{{ item.path }}</span>
           </div>
-          <div v-else-if="item.kind === 'folder'" class="fl-list-row" role="button" tabindex="0"
+          <div v-else-if="item.kind === 'folder'" class="fl-list-row fl-list-row-folder" role="button" tabindex="0"
             @click="openFolderNode(item.ref)" @keydown.enter="openFolderNode(item.ref)">
             <span class="fl-list-col fl-list-col-icon">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -255,7 +307,7 @@ onBeforeUnmount( () => {
             <span class="fl-list-col fl-list-col-count">{{ item.count }} 张</span>
             <span class="fl-list-col fl-list-col-path" :title="item.path">{{ item.path }}</span>
           </div>
-          <div v-else class="fl-list-row" role="button" tabindex="0" @click="openZipEntry(item.ref)"
+          <div v-else class="fl-list-row fl-list-row-zip" role="button" tabindex="0" @click="openZipEntry(item.ref)"
             @keydown.enter="openZipEntry(item.ref)">
             <span class="fl-list-col fl-list-col-icon">
               <svg data-v-92fcd16b="" width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -265,7 +317,7 @@ onBeforeUnmount( () => {
               </svg> </span>
             <span class="fl-list-col fl-list-col-name" :title="item.name">{{ item.name }}</span>
             <span class="fl-list-col fl-list-col-type">{{ item.type }}</span>
-            <span class="fl-list-col fl-list-col-count">—</span>
+            <span class="fl-list-col fl-list-col-count">{{ item.count >= 0 ? `${item.count} 张` : '—' }}</span>
             <span class="fl-list-col fl-list-col-path" :title="item.path">{{ item.path }}</span>
           </div>
         </template>
@@ -433,6 +485,94 @@ onBeforeUnmount( () => {
   background: #b26a00;
 }
 
+/* 描述行内的类型徽标（非封面角标） */
+.fl-badge-inline {
+  position: static;
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 6px;
+  font-size: 10px;
+  line-height: 1.5;
+  vertical-align: 1px;
+}
+
+/* ============ 卡片类型区分（背景色 / 纹理） ============ */
+/* 本目录：蓝色 */
+.fl-card-self {
+  border-color: rgba(0, 120, 212, 0.28);
+  background: linear-gradient(180deg, rgba(0, 120, 212, 0.06), transparent 60%);
+}
+
+.fl-card-self .fl-cover {
+  background: #e3eef9;
+}
+
+/* 漫画（仅含图片的文件夹）：绿色 */
+.fl-card-comic {
+  border-color: rgba(46, 158, 87, 0.28);
+  background: linear-gradient(180deg, rgba(46, 158, 87, 0.06), transparent 60%);
+}
+.fl-card-comic:hover,
+.fl-card-comic:focus-visible {
+  border-color: rgba(19, 65, 51, 0.29);
+}
+
+.fl-card-comic .fl-cover {
+  background: #e7f3ec;
+}
+
+/* 文件夹（含子目录，导航）：紫色 */
+.fl-card-folder {
+  border-color: rgba(130, 80, 223, 0.28);
+  background: linear-gradient(180deg, rgba(130, 80, 223, 0.06), transparent 60%);
+}
+.fl-card-folder:hover,
+.fl-card-folder:focus-visible {
+  border-color: rgba(91, 39, 104, 0.28);
+  box-shadow: var(--shadow-2);
+  outline: none;
+}
+.fl-card-folder .fl-cover {
+  background: #efebf7;
+}
+
+/* 压缩文件：橙色 + 斜纹纹理 */
+.fl-card-zip {
+  border-color: rgba(178, 106, 0, 0.3);
+  background: linear-gradient(180deg, rgba(178, 106, 0, 0.07), transparent 60%);
+}
+.fl-card-zip:hover,
+.fl-card-zip:focus-visible {
+  border-color: rgba(117, 86, 0, 0.3);
+  box-shadow: var(--shadow-2);
+  outline: none;
+}
+
+.fl-card-zip .fl-cover {
+  background: repeating-linear-gradient(45deg, #f7ecd9 0 10px, #efe0c3 10px 20px);
+}
+
+/* 列表行类型区分：左侧色条 + 淡色背景 */
+.fl-list-row-self {
+  background: rgba(0, 120, 212, 0.05);
+  box-shadow: inset 3px 0 0 #0078d4;
+}
+
+.fl-list-row-comic {
+  background: rgba(46, 158, 87, 0.05);
+  box-shadow: inset 3px 0 0 #2e9e57;
+}
+
+.fl-list-row-folder {
+  background: rgba(130, 80, 223, 0.05);
+  box-shadow: inset 3px 0 0 #8250df;
+}
+
+.fl-list-row-zip {
+  background: rgba(178, 106, 0, 0.06);
+  box-shadow: inset 3px 0 0 #b26a00;
+}
+
 .fl-img {
   width: 100%;
   height: 100%;
@@ -522,7 +662,7 @@ onBeforeUnmount( () => {
 .fl-list-row:focus-visible {
   background: var(--hover);
   outline: none;
-	--text-dim: #411111;
+  --text-dim: #411111;
 }
 
 .fl-list-col {

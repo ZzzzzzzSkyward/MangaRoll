@@ -14,13 +14,13 @@
 > ⏳ **待实施**（尚未落地：`package.json` 无 `libarchivejs` / `pdfjs-dist`，`importer.js` 无对应解压 / PDF 渲染路径，`FilePicker.vue` accept 仍仅 `.zip`）
 
 **新增依赖**：`libarchivejs`（RAR / 7z 解压，浏览器 WASM）、`pdfjs-dist`（PDF 渲染）。
-ZIP / CBZ 继续使用现有 JSZip（CBZ 即 ZIP 改名，只需扩展识别）。
+ZIP / CBZ 继续使用现有 unzipit（CBZ 即 ZIP 改名，只需扩展识别）。
 
 **导入分发链路**（`store.js:handleEntries` 按扩展名分流）：
 
 | 扩展名                        | 处理模块                                   | 说明                 |
 | ----------------------------- | ------------------------------------------ | -------------------- |
-| `.zip` / `.cbz`           | 现有 `unzip()` (JSZip)                   | 不变，仅扩展识别     |
+| `.zip` / `.cbz`           | 现有 `unzip()` (unzipit)                 | 不变，仅扩展识别     |
 | `.cbr` / `.cb7` / `.7z` | 新增 `unarchiveArchive()` (libarchivejs) | 解压出图片条目       |
 | `.pdf`                      | 新增 `extractPdf()` (pdfjs-dist)         | 逐页渲染为 JPEG 条目 |
 | 文件夹                        | 现有 walkItems                             | 不变                 |

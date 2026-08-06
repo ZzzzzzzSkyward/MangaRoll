@@ -1,4 +1,4 @@
-import JSZip from 'jszip'
+import { unzip as unzipitUnzip } from 'unzipit'
 import { naturalCompare, isImage, isJson, isZip, baseNameOf } from './fileUtils'
 import { walkDirHandle, walkItems } from './fileWalker'
 import { extractDims, extractDimsInto } from './imageProcessor'
@@ -8,19 +8,52 @@ export { walkDirHandle, walkItems } from './fileWalker'
 export { extractDims, extractDimsInto } from './imageProcessor'
 
 export async function unzip(file, onProgress) {
-  const zip = await JSZip.loadAsync(file)
-  const names = Object.keys(zip.files).filter((n) => !zip.files[n].dir).sort(naturalCompare)
+  const { entries: zipEntries } = await unzipitUnzip(file)
+  const names = Object.keys(zipEntries)
+    .filter((n) => !zipEntries[n].isDirectory)
+    .sort(naturalCompare)
   const entries = []
   for (const name of names) {
-    const entry = zip.files[name]
+    const entry = zipEntries[name]
     if (isImage(name) || isJson(name)) {
-      const blob = await entry.async('blob')
+      const blob = await entry.blob()
       blob.name = name.split('/').pop()
       entries.push({ file: blob, path: name })
     }
     if (onProgress) onProgress(entries.length, names.length)
   }
   return entries
+}
+
+// 提取压缩包封面：优先主名完全等于 cover（不区分大小写）的图片，否则取第一张。
+// 未解压过的压缩包走分块读取——先只读文件尾部的中央目录定位条目，再仅解压封面单条目，
+// 不整体加载 / 解压；已解压过的直接复用内存中页面数据。
+export async function extractZipCover(file, pages) {
+  if (pages && pages.length) {
+    const cover = pages.find((p) => baseNameOf(p.name).toLowerCase() === 'cover') || pages[0]
+    return cover ? cover.file : null
+  }
+  const { entries: zipEntries } = await unzipitUnzip(file)
+  const names = Object.keys(zipEntries)
+    .filter((n) => isImage(n) && !zipEntries[n].isDirectory)
+    .sort(naturalCompare)
+  if (!names.length) return null
+  const coverName = names.find((n) => baseNameOf(n).toLowerCase() === 'cover') || names[0]
+  const blob = await zipEntries[coverName].blob()
+  blob.name = coverName.split('/').pop()
+  return blob
+}
+
+// 统计压缩包内图片条目数：仅读文件尾部中央目录，不解压任何条目；
+// 已解压过的直接复用内存中页面数据。
+export async function countZipImages(file, pages) {
+  if (pages && pages.length) return pages.length
+  const { entries: zipEntries } = await unzipitUnzip(file)
+  let count = 0
+  for (const name of Object.keys(zipEntries)) {
+    if (isImage(name) && !zipEntries[name].isDirectory) count++
+  }
+  return count
 }
 
 export function buildFolderTree(entries, pages) {
