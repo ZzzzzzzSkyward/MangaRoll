@@ -4,6 +4,7 @@ import Toolbar from './components/Toolbar.vue'
 import DropZone from './components/DropZone.vue'
 import ReaderView from './components/ReaderView.vue'
 import FolderList from './components/FolderList.vue'
+import UpdateNotice from './components/UpdateNotice.vue'
 import { state, dragging, toast } from './store'
 import { importDropped } from './lib/importManager'
 
@@ -67,6 +68,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
     <Toolbar />
+    <UpdateNotice />
     <Transition name="toast">
       <div v-if="toast" class="toast">{{ toast }}</div>
     </Transition>
